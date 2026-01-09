@@ -745,7 +745,9 @@ export default function TripDetail({ route, navigation }: any) {
                     </Text>
 
                     <Text style={[styles.cardExpandedLabel, { color: theme.labelColor } as TextStyle]}>
-                      How to do it:
+                      {(card.title.toLowerCase().includes('melatonin') || card.title.toLowerCase().includes('magnesium'))
+                        ? 'OPTIONAL GUIDANCE:'
+                        : 'How to do it:'}
                     </Text>
                     <Text style={[styles.cardExpandedText, { color: theme.textColor } as TextStyle]}>
                       {card.how}

@@ -569,7 +569,11 @@ export default function TodayView({ navigation }: any) {
                 <View style={styles.expandedContent}>
                   <Text style={[styles.expandedLabel, { color: cardStyle.label }]}>Why it helps:</Text>
                   <Text style={[styles.expandedText, { color: cardStyle.text }]}>{card.why}</Text>
-                  <Text style={[styles.expandedLabel, { color: cardStyle.label }]}>How to do it:</Text>
+                  <Text style={[styles.expandedLabel, { color: cardStyle.label }]}>
+                    {(card.title.toLowerCase().includes('melatonin') || card.title.toLowerCase().includes('magnesium'))
+                      ? 'OPTIONAL GUIDANCE:'
+                      : 'How to do it:'}
+                  </Text>
                   <Text style={[styles.expandedText, { color: cardStyle.text }]}>{card.how}</Text>
                 </View>
               )}

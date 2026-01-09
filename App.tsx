@@ -39,6 +39,13 @@ function PlansScreen({ navigation }: any) {
       // Keep plan active until 1 day after arrival to include the shortened adjustment phase
       const planEndDate = moment(lastTrip.arriveDate).add(1, 'days');
       return planEndDate.isSameOrAfter(today, 'day');
+    }).sort((a, b) => {
+      // Sort active plan to top
+      const isActiveA = activePlan?.id === a.id;
+      const isActiveB = activePlan?.id === b.id;
+      if (isActiveA && !isActiveB) return -1;
+      if (!isActiveA && isActiveB) return 1;
+      return 0;
     });
 
     const past = plans.filter(plan => {

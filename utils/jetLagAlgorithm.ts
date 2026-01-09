@@ -150,6 +150,45 @@ const cityTimezones: { [key: string]: string } = {
   'Hong Kong': 'Asia/Hong_Kong',
   'Taipei': 'Asia/Taipei',
   'Puerto Natales': 'America/Punta_Arenas',
+  // North America (New)
+  'Portland': 'America/Los_Angeles',
+  'Salt Lake City': 'America/Denver',
+  'New Orleans': 'America/Chicago',
+  'Nashville': 'America/Chicago',
+  'Orlando': 'America/New_York',
+  'Detroit': 'America/Detroit',
+  'Minneapolis': 'America/Chicago',
+  // Europe (New)
+  'Edinburgh': 'Europe/London',
+  'Manchester': 'Europe/London',
+  'Lyon': 'Europe/Paris',
+  'Marseille': 'Europe/Paris',
+  'Naples': 'Europe/Rome',
+  'Milan': 'Europe/Rome',
+  'Hamburg': 'Europe/Berlin',
+  'Geneva': 'Europe/Zurich',
+  'Krakow': 'Europe/Warsaw',
+  // Asia (New)
+  'Kyoto': 'Asia/Tokyo',
+  'Busan': 'Asia/Seoul',
+  'Sapporo': 'Asia/Tokyo',
+  'Chiang Mai': 'Asia/Bangkok',
+  'Hanoi': 'Asia/Bangkok',
+  'Chengdu': 'Asia/Shanghai',
+  'Xi\'an': 'Asia/Shanghai',
+  'Jaipur': 'Asia/Kolkata',
+  // Oceania (New)
+  'Adelaide': 'Australia/Adelaide',
+  'Christchurch': 'Pacific/Auckland',
+  'Gold Coast': 'Australia/Brisbane',
+  // South America (New)
+  'Rio de Janeiro': 'America/Sao_Paulo',
+  'Medellin': 'America/Bogota',
+  'Cusco': 'America/Lima',
+  // Africa (New)
+  'Durban': 'Africa/Johannesburg',
+  'Nairobi': 'Africa/Nairobi',
+  'Luanda': 'Africa/Luanda',
 };
 
 function formatTime12Hour(time24: string): string {
@@ -371,9 +410,9 @@ function generatePrepareCards(
       time: 'Evening',
       icon: '😴',
       color: '#6366f1',
-      why: `Only ${hoursDiff} hour difference - your body will adjust naturally. Focus on being well-rested.`,
+      why: `Only ${hoursDiff} hour difference - your body can adjust gradually. Focus on being well-rested.`,
       how: 'Maintain your normal sleep schedule. Pack and prepare without stress.',
-      dateTime: `${startDate}T20:00:00`,
+      dateTime: moment.tz(`${startDate} 20:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
     });
 
     // FIX #5: Add more cards for short trips
@@ -394,9 +433,9 @@ function generatePrepareCards(
       time: 'Morning or afternoon',
       icon: '🚶',
       color: '#10b981',
-      why: 'Physical activity helps you sleep better and reduces travel stress.',
-      how: 'Take a 30-minute walk or do light exercise. Nothing too intense before travel.',
-      dateTime: `${startDate}T10:00:00`,
+      why: 'Light activity is often helpful before travel.',
+      how: 'Consider a 30-minute walk or light exercise. Nothing too intense before travel.',
+      dateTime: moment.tz(`${startDate} 10:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
     });
 
     cards.sort((a, b) => {
@@ -423,9 +462,9 @@ function generatePrepareCards(
       time: lightTime,
       icon: '☀️',
       color: '#fbbf24',
-      why: `Traveling ${hoursDiff} hours east to ${trip.to}. Morning light advances your body clock.`,
-      how: 'Get bright light exposure within 2 hours of waking. Go outside for 30-60 minutes, or use a light therapy lamp.',
-      dateTime: `${startDate}T07:00:00`,
+      why: `Traveling ${hoursDiff} hours east to ${trip.to}. Morning light is commonly used to advance the body clock.`,
+      how: 'Try to get bright light exposure within 2 hours of waking. Go outside for 30-60 minutes if possible.',
+      dateTime: moment.tz(`${startDate} 07:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
     });
 
     // Calculate 30 minutes earlier than normal bedtime
@@ -438,9 +477,9 @@ function generatePrepareCards(
       time: formatTime12Hour(earlierBedtime),
       icon: '🌙',
       color: '#6366f1',
-      why: `Shift your sleep 30 minutes earlier than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime for ${prepDays} days before departure.`,
-      how: 'Go to bed 30-60 minutes earlier than usual. Dim lights after 8 PM. Avoid screens before bed.',
-      dateTime: `${startDate}T${earlierBedtime}:00`,
+      why: `Consider shifting your sleep 30 minutes earlier than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime for ${prepDays} days before departure.`,
+      how: 'Try to go to bed 30-60 minutes earlier than usual. Dim lights after 8 PM. Limit screen time before bed.',
+      dateTime: moment.tz(`${startDate} ${earlierBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
     });
 
     cards.push({
@@ -449,9 +488,9 @@ function generatePrepareCards(
       time: '8:00 PM onwards',
       icon: '🌙',
       color: '#64748b',
-      why: 'Evening light will delay your clock - opposite of what you need for eastward travel.',
-      how: 'Dim lights in your home. Use warm/amber lighting. Wear blue-light blocking glasses if needed.',
-      dateTime: `${startDate}T20:00:00`,
+      why: 'Evening light can delay your clock - opposite of what helps for eastward travel.',
+      how: 'Consider dimming lights in your home. Use warm/amber lighting if available.',
+      dateTime: moment.tz(`${startDate} 20:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
     });
 
   } else {
@@ -463,10 +502,10 @@ function generatePrepareCards(
       time: lightTime,
       icon: '🌅',
       color: '#f97316',
-      why: `Traveling ${hoursDiff} hours west to ${trip.to}. Evening light delays your body clock.`,
+      why: `Traveling ${hoursDiff} hours west to ${trip.to}. Evening light is commonly used to delay the body clock.`,
 
-      how: 'Get bright light exposure in the evening. Go outside or use bright indoor lighting.',
-      dateTime: `${startDate}T18:00:00`,
+      how: 'Try to get bright light exposure in the evening. Go outside or use bright indoor lighting.',
+      dateTime: moment.tz(`${startDate} 18:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
     });
 
     // Calculate 30 minutes later than normal bedtime
@@ -479,9 +518,9 @@ function generatePrepareCards(
       time: formatTime12Hour(laterBedtime),
       icon: '🌙',
       color: '#6366f1',
-      why: `Shift your sleep 30 minutes later than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime to match destination timezone.`,
-      how: 'Stay up 30-60 minutes later than usual. Keep lights bright in the evening.',
-      dateTime: `${startDate}T${laterBedtime}:00`,
+      why: `Consider shifting your sleep 30 minutes later than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime to start matching destination timezone.`,
+      how: 'Try to stay up 30-60 minutes later than usual. Keep lights bright in the evening.',
+      dateTime: moment.tz(`${startDate} ${laterBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
     });
   }
 
@@ -543,6 +582,7 @@ function generateTravelCards(
     why: `Departs ${formatTime12Hour(firstSegment.departTime)}`,
     how: `Total journey: ~${Math.round(totalHours)} hours with ${segments.length} flight segment${segments.length > 1 ? 's' : ''}`,
     isInfo: true,
+    dateTime: journeyStart.clone().startOf('day').add(2, 'seconds').toISOString(),
   });
 
   // === Analyze each segment for sleep/wake recommendations ===
@@ -651,13 +691,13 @@ function generateTravelCards(
       const isFirstDay = currentDate.isSame(journeyStart, 'day');
       const isLastDay = currentDate.isSame(journeyEnd, 'day');
 
+      const firstSegToday = segmentsDepartingToday[0];
       let headerText = '';
       if (isFirstDay) {
         headerText = `${dateStr} - Departure Day - ${trip.from} Time`;
       } else if (isLastDay) {
         headerText = `${dateStr} - Arrival Day - ${trip.to} Time`;
       } else {
-        const firstSegToday = segmentsDepartingToday[0];
         headerText = `${dateStr} - In Flight - ${firstSegToday.segment.from} Time`;
       }
 
@@ -671,6 +711,7 @@ function generateTravelCards(
         why: '',
         how: '',
         isInfo: true,
+        dateTime: moment.tz(`${dateYYYYMMDD} 00:00:01`, 'YYYY-MM-DD HH:mm:ss', getCityTimezone(firstSegToday.segment.from)).toISOString(),
       });
 
       // FIX #3: Add per-day caffeine guidance
@@ -687,7 +728,8 @@ function generateTravelCards(
         const overnightFlight = segmentsDepartingToday.find(a => a.shouldSleep);
         if (overnightFlight) {
           // Calculate caffeine cutoff: 6 hours before user's normal bedtime OR 4 hours before flight, whichever is earlier
-          const userBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
+          // Anchor to the specific travel date and origin timezone
+          const userBedtimeMoment = moment.tz(`${dateYYYYMMDD} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(firstSegment.from));
           const caffeineCutoffFromBedtime = userBedtimeMoment.clone().subtract(6, 'hours');
           const caffeineCutoffFromFlight = overnightFlight.departMoment.clone().subtract(4, 'hours');
 
@@ -700,8 +742,8 @@ function generateTravelCards(
             time: `Stop by ${caffeineStopTime.format('h:mm A')} ${firstSegment.from} time`,
             icon: '🚫',
             color: '#F3F0ED',
-            why: `You have an overnight flight at ${overnightFlight.departMoment.format('h:mm A')}. Stop caffeine early to ensure you can sleep.`,
-            how: `Switch to water, herbal tea, or juice. This helps you sleep on your overnight flight.`,
+            why: `You have an overnight flight at ${overnightFlight.departMoment.format('h:mm A')}. Stopping caffeine early is often recommended for better sleep.`,
+            how: `Consider switching to water or herbal tea. This may help you rest on your overnight flight.`,
             dateTime: caffeineStopTime.toISOString(),
           });
         }
@@ -715,8 +757,9 @@ function generateTravelCards(
           time: 'Only before 2 PM',
           icon: '☕',
           color: '#B46B49',
-          why: `You have an overnight flight tomorrow. Keep caffeine intake early today.`,
-          how: `Coffee or tea is fine until 2 PM. After that, switch to water or herbal tea.`,
+          why: `You have an overnight flight tomorrow. Many travelers limit caffeine intake early today.`,
+          how: `Coffee or tea is fine until 2 PM. After that, consider switching to water or herbal tea.`,
+          dateTime: moment.tz(`${dateYYYYMMDD} 08:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(firstFlightToday.segment.from)).toISOString(),
         });
       } else {
         const flightWord = segments.length > 1 ? 'flights' : 'flight';
@@ -748,6 +791,7 @@ function generateTravelCards(
           why: `${segment.from} → ${segment.to}`,
           how: `Departs ${moment(segment.departDate).format('MMM D')} at ${formatTime12Hour(segment.departTime)}, arrives ${moment(segment.arriveDate).format('MMM D')} at ${formatTime12Hour(segment.arriveTime)}`,
           isInfo: true,
+          dateTime: analysis.departMoment.clone().subtract(20, 'minutes').toISOString(),
         });
 
         // === Add sleep/wake recommendation for THIS specific flight ===
@@ -791,6 +835,7 @@ function generateTravelCards(
               color: '#F3F0ED',
               why: `Quick connection in ${segment.to}. Focus on making your next flight.`,
               how: `Head directly to next gate. Use restroom. Refill water. No time for meals or exploring.`,
+              dateTime: analysis.arriveMoment.clone().add(5, 'minutes').toISOString(),
             });
           } else if (layoverHours >= 2 && layoverHours < 5) {
             // Medium layover - opportunity to adjust
@@ -806,6 +851,7 @@ function generateTravelCards(
                 color: '#F3F0ED',
                 why: `${Math.round(layoverHours)}-hour overnight layover. This is a chance to rest before your next flight.`,
                 how: `Find a quiet area. Set alarm for 90 min before next flight. Short nap OK but don't miss your flight!`,
+                dateTime: analysis.arriveMoment.clone().add(30, 'minutes').toISOString(),
               });
             } else {
               // Check if next flight is overnight - if so, avoid caffeine
@@ -822,6 +868,7 @@ function generateTravelCards(
                 how: nextIsOvernight
                   ? `Walk around terminal. Eat a light meal. Stretch. NO caffeine - you have an overnight flight next.`
                   : `Walk around terminal. Eat a light meal. Caffeine OK if needed. Stay hydrated.`,
+                dateTime: analysis.arriveMoment.clone().add(15, 'minutes').toISOString(),
               });
             }
           } else if (layoverHours >= 5) {
@@ -834,6 +881,7 @@ function generateTravelCards(
               color: '#F3F0ED',
               why: `${Math.round(layoverHours)}-hour layover. You have time to leave the airport if you want.`,
               how: `Consider booking airport hotel for shower/rest. Or explore city if you have visa. Set multiple alarms!`,
+              dateTime: analysis.arriveMoment.clone().add(30, 'minutes').toISOString(),
             });
           }
         }
@@ -861,6 +909,7 @@ function generateTravelCards(
     how: segments.length > 1
       ? `Drink water regularly on planes and during layovers. Aim for 8oz per flight hour. Avoid excessive alcohol.`
       : `Drink water regularly on the plane. Aim for 8oz per flight hour. Avoid excessive alcohol.`,
+    dateTime: journeyStart.clone().subtract(15, 'minutes').toISOString(),
   });
 
   return cards;
@@ -978,7 +1027,7 @@ function generateAdjustCards(
       icon: '🌙',
       color: '#1C5D74',
       why: `You arrived at ${landingTime}. Get some rest tonight and start the full adjustment routine tomorrow.`,
-      how: `Get to your accommodation and sleep. ${userSettings.useMelatonin ? 'Take melatonin if it helps you sleep.' : ''
+      how: `Get to your accommodation and sleep. ${userSettings.useMelatonin ? 'Using melatonin is an option if you choose.' : ''
         } Tomorrow you'll begin the complete adjustment schedule.`,
       dateTime: landingMoment.toISOString(),
     });
@@ -1002,10 +1051,10 @@ function generateAdjustCards(
       time: formatTime12Hour(userSettings.normalBedtime),
       icon: '🌙',
       color: '#1C5D74',
-      why: 'Get to bed at a reasonable local time to start your adjustment.',
-      how: `Try to sleep around ${formatTime12Hour(userSettings.normalBedtime)}. ${userSettings.useMelatonin ? 'Take melatonin 30 min before bed.' : ''
+      why: 'Getting to bed at a reasonable local time helps start your adjustment.',
+      how: `Try to sleep around ${formatTime12Hour(userSettings.normalBedtime)}. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
         } Keep room dark and cool.`,
-      dateTime: `${arrivalDate}T${userSettings.normalBedtime}:00`,
+      dateTime: moment.tz(`${arrivalDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
     });
   } else {
     // Daytime arrival (before 6 PM) - normal dinner and sleep schedule
@@ -1027,10 +1076,10 @@ function generateAdjustCards(
       time: formatTime12Hour(userSettings.normalBedtime),
       icon: '🌙',
       color: '#1C5D74',
-      why: 'Your first night in the new timezone. Sleep at normal local bedtime even if not tired.',
-      how: `Go to bed around ${formatTime12Hour(userSettings.normalBedtime)}. Keep room dark and cool. ${userSettings.useMelatonin ? 'Take melatonin 30 min before bed.' : ''
+      why: 'Your first night in the new timezone. Sleeping at normal local bedtime is recommended even if not tired.',
+      how: `Try to go to bed around ${formatTime12Hour(userSettings.normalBedtime)}. Keep room dark and cool. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
         }`,
-      dateTime: `${arrivalDate}T${userSettings.normalBedtime}:00`,
+      dateTime: moment.tz(`${arrivalDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
     });
   }
 
@@ -1065,9 +1114,9 @@ function generateAdjustCards(
     time: formatTimeRange12Hour('07:00', '10:00'),
     icon: '☀️',
     color: '#FFF7C5',
-    why: `Most powerful tool for locking in ${trip.to} timezone. Morning light stabilizes your internal body clock. ${adjustmentStrategy.reason}`,
-    how: 'Get outside for 30-60 minutes in natural daylight. Even cloudy days work. This is your #1 priority.',
-    dateTime: nextDayMorning.format('YYYY-MM-DDTHH:mm:ss'),
+    why: `Most powerful tool for locking in ${trip.to} timezone. Morning light helps stabilize your internal body clock. ${adjustmentStrategy.reason}`,
+    how: 'Try to get outside for 30-60 minutes in natural daylight. Even cloudy days work.',
+    dateTime: nextDayMorning.toISOString(),
     isDailyRoutine: true,
   });
 
@@ -1079,7 +1128,7 @@ function generateAdjustCards(
     color: '#92400e',
     why: 'Strategic caffeine helps you stay alert during local daytime. Essential for adjustment.',
     how: 'Coffee or tea during these hours. Helps fight off sleepiness and stay on local schedule.',
-    dateTime: `${nextDayStr}T07:00:00`,
+    dateTime: moment.tz(`${nextDayStr} 07:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
     isDailyRoutine: true,
   });
 
@@ -1091,7 +1140,7 @@ function generateAdjustCards(
     color: '#64748b',
     why: 'Caffeine stays in your system 6+ hours. You need good sleep tonight to consolidate adjustment.',
     how: 'Switch to water, herbal tea, or decaf. Resist the temptation for afternoon coffee.',
-    dateTime: `${nextDayStr}T14:00:00`,
+    dateTime: moment.tz(`${nextDayStr} 14:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
     isDailyRoutine: true,
   });
 
@@ -1102,9 +1151,9 @@ function generateAdjustCards(
       time: '12:00 - 5:00 PM',
       icon: '⏰',
       color: '#ef4444',
-      why: 'Eastward travel makes you drowsy in afternoon. Long naps will prevent nighttime sleep.',
-      how: 'If desperately tired, limit naps to 20 minutes max. Set an alarm. Better: take a walk outside.',
-      dateTime: `${nextDayStr}T12:00:00`,
+      why: 'Eastward travel often makes you drowsy in afternoon. Long naps can make it harder to sleep at night.',
+      how: 'If tired, try to limit naps to 20 minutes max. Set an alarm. Better: take a walk outside.',
+      dateTime: moment.tz(`${nextDayStr} 12:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
       isDailyRoutine: true,
     });
   } else {
@@ -1116,7 +1165,7 @@ function generateAdjustCards(
       color: '#8b5cf6',
       why: 'Westward travel is easier. A brief nap won\'t hurt your adjustment.',
       how: 'If tired, a 20-30 minute nap is fine. Set an alarm. Don\'t nap after 3 PM.',
-      dateTime: `${nextDayStr}T13:00:00`,
+      dateTime: moment.tz(`${nextDayStr} 13:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
       isDailyRoutine: true,
     });
   }
@@ -1128,11 +1177,11 @@ function generateAdjustCards(
     time: `${formatTime12Hour(localBedtime)} - consistent schedule`,
     icon: '🌙',
     color: '#6366f1',
-    why: `Your body is learning ${trip.to} time. Consistent sleep schedule locks it in.${nextTrip ? ` ${adjustmentStrategy.reason}` : ''
+    why: `Your body is learning ${trip.to} time. A consistent sleep schedule helps lock it in.${nextTrip ? ` ${adjustmentStrategy.reason}` : ''
       }`,
-    how: `Go to bed around ${localBedtime} local time. Keep room dark and cool. ${userSettings.useMelatonin ? 'Take melatonin 30 min before bed.' : ''
+    how: `Try to go to bed around ${formatTime12Hour(localBedtime)} local time. Keep room dark and cool. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
       }`,
-    dateTime: `${nextDayStr}T${localBedtime}:00`,
+    dateTime: moment.tz(`${nextDayStr} ${localBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
     isDailyRoutine: true,
   });
 
@@ -1140,13 +1189,13 @@ function generateAdjustCards(
     const melatoninTime = moment(localBedtime, 'HH:mm').subtract(30, 'minutes').format('HH:mm');
     cards.push({
       id: 'adjust-melatonin',
-      title: 'Take Melatonin',
-      time: `${formatTime12Hour(melatoninTime)} (30 min before bed)`,
+      title: 'Melatonin',
+      time: `${formatTime12Hour(melatoninTime)} (optional)`,
       icon: '💊',
       color: '#8b5cf6',
-      why: 'Melatonin signals to your body that it\'s time to sleep in the new timezone.',
-      how: 'Consider taking a small dose 30 minutes before bed if you have used it before. Follow package instructions or consult a doctor.',
-      dateTime: `${nextDayStr}T${melatoninTime}:00`,
+      why: 'Some travelers choose to use melatonin to signal to the body that it\'s time to sleep.',
+      how: 'If this is something you already use, you may choose to take a small dose 30 minutes before bed. Follow package instructions.',
+      dateTime: moment.tz(`${nextDayStr} ${melatoninTime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
       isDailyRoutine: true,
     });
   }
@@ -1154,13 +1203,13 @@ function generateAdjustCards(
   if (userSettings.useMagnesium) {
     cards.push({
       id: 'adjust-magnesium',
-      title: 'Take Magnesium',
-      time: 'Evening with dinner',
+      title: 'Magnesium',
+      time: 'Evening (optional)',
       icon: '💊',
       color: '#10b981',
-      why: 'Magnesium supports sleep quality and helps reduce travel-related stress.',
-      how: 'Take magnesium glycinate with dinner. Helps with relaxation and sleep.',
-      dateTime: `${nextDayStr}T19:00:00`,
+      why: 'Some travelers find magnesium helpful for relaxation.',
+      how: 'If you choose to use it, many people take magnesium glycinate with dinner.',
+      dateTime: moment.tz(`${nextDayStr} 19:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
       isDailyRoutine: true,
     });
   }

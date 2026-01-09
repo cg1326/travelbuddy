@@ -129,7 +129,7 @@ export default function ProfileSettings() {
 
         {/* General Disclaimer */}
         <Text style={styles.disclaimerText}>
-          Travel Buddy provides general information about sleep and your body clock. It is not a medical device and does not provide medical advice.
+          This app provides general travel and lifestyle guidance and does not offer medical advice. Always consult a qualified healthcare professional regarding supplements, sleep concerns, or health-related questions.
         </Text>
 
         {/* Sleep Schedule Section */}
@@ -143,7 +143,9 @@ export default function ProfileSettings() {
               style={styles.selectButton}
               onPress={() => setShowBedtimePicker(!showBedtimePicker)}
             >
-              <Text style={styles.selectButtonText}>Select</Text>
+              <Text style={styles.selectButtonText}>
+                {showBedtimePicker ? "Done" : "Select"}
+              </Text>
             </TouchableOpacity>
           </View>
           {showBedtimePicker && (
@@ -152,6 +154,8 @@ export default function ProfileSettings() {
               mode="time"
               display="spinner"
               onChange={onBedtimeChange}
+              textColor="black"
+              themeVariant="light"
             />
           )}
 
@@ -162,7 +166,9 @@ export default function ProfileSettings() {
               style={styles.selectButton}
               onPress={() => setShowWakeTimePicker(!showWakeTimePicker)}
             >
-              <Text style={styles.selectButtonText}>Select</Text>
+              <Text style={styles.selectButtonText}>
+                {showWakeTimePicker ? "Done" : "Select"}
+              </Text>
             </TouchableOpacity>
           </View>
           {showWakeTimePicker && (
@@ -171,6 +177,8 @@ export default function ProfileSettings() {
               mode="time"
               display="spinner"
               onChange={onWakeTimeChange}
+              textColor="black"
+              themeVariant="light"
             />
           )}
         </View>
