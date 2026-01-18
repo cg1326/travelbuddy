@@ -15,46 +15,40 @@ import moment from 'moment-timezone';
 import Icon from 'react-native-vector-icons/Feather';
 
 
+import { cityTimezones, airportMappings } from '../utils/jetLagAlgorithm';
+
 // Valid cities from jetLagAlgorithm.ts
-const VALID_CITIES = [
-  'San Diego', 'Los Angeles', 'San Francisco', 'Las Vegas', 'Seattle', 'Phoenix',
-  'Denver', 'Chicago', 'Dallas', 'Houston', 'Austin', 'New York', 'Boston',
-  'Washington DC', 'Philadelphia', 'Atlanta', 'Miami', 'Honolulu', 'Toronto',
-  'Vancouver', 'Montreal', 'Mexico City', 'Cancun', 'São Paulo', 'Buenos Aires',
-  'Santiago', 'Bogota', 'Lima', 'London', 'Dublin', 'Lisbon', 'Madrid', 'Barcelona',
-  'Paris', 'Brussels', 'Amsterdam', 'Berlin', 'Frankfurt', 'Munich', 'Rome',
-  'Vienna', 'Zurich', 'Stockholm', 'Copenhagen', 'Oslo', 'Prague', 'Warsaw',
-  'Istanbul', 'Athens', 'Moscow', 'Cairo', 'Johannesburg', 'Cape Town',
-  'Marrakech', 'Casablanca', 'Dubai', 'Abu Dhabi', 'Doha', 'Riyadh', 'Tel Aviv',
-  'Delhi', 'Mumbai', 'Bangalore', 'Bangkok', 'Singapore', 'Kuala Lumpur',
-  'Jakarta', 'Manila', 'Ho Chi Minh City', 'Auckland', 'Sydney', 'Melbourne',
-  'Brisbane', 'Perth', 'Tokyo', 'Osaka', 'Seoul', 'Beijing', 'Shanghai',
-  'Hong Kong', 'Taipei', 'Puerto Natales'
-];
+const VALID_CITIES = Object.keys(cityTimezones);
 
 // Fuzzy match city name
 function findClosestCity(input: string): string | null {
   if (!input || input.trim().length < 2) return null;
 
   const normalized = input.trim().toLowerCase();
+  const upperInput = input.trim().toUpperCase();
 
-  // Exact match
+  // 1. Check Airport Codes FIRST
+  if (airportMappings[upperInput]) {
+    return airportMappings[upperInput];
+  }
+
+  // 2. Exact match
   const exactMatch = VALID_CITIES.find(city => city.toLowerCase() === normalized);
   if (exactMatch) return exactMatch;
 
-  // Starts with match
+  // 3. Starts with match
   const startsWithMatch = VALID_CITIES.find(city =>
     city.toLowerCase().startsWith(normalized)
   );
   if (startsWithMatch) return startsWithMatch;
 
-  // Contains match
+  // 4. Contains match
   const containsMatch = VALID_CITIES.find(city =>
     city.toLowerCase().includes(normalized)
   );
   if (containsMatch) return containsMatch;
 
-  // Levenshtein distance for typos
+  // 5. Levenshtein distance for typos
   const distances = VALID_CITIES.map(city => ({
     city,
     distance: levenshteinDistance(normalized, city.toLowerCase())
@@ -170,6 +164,35 @@ function validateTrip(trip: {
   return { valid: errors.length === 0, errors, suggestions };
 }
 
+// Check for overlapping trips
+function checkOverlappingTrips(
+  newTrip: { departDate: string; departTime: string; arriveDate: string; arriveTime: string },
+  existingTrips: Trip[],
+  ignoreTripId?: string | null
+): string | null {
+  const newStart = moment(`${newTrip.departDate} ${newTrip.departTime}`, 'YYYY-MM-DD HH:mm');
+  const newEnd = moment(`${newTrip.arriveDate} ${newTrip.arriveTime}`, 'YYYY-MM-DD HH:mm');
+
+  if (!newStart.isValid() || !newEnd.isValid()) return null;
+
+  for (const trip of existingTrips) {
+    if (ignoreTripId && trip.id === ignoreTripId) continue;
+
+    const existingStart = moment(`${trip.departDate} ${trip.departTime}`, 'YYYY-MM-DD HH:mm');
+    const existingEnd = moment(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm');
+
+    // Check for overlap: (StartA < EndB) and (StartB < EndA)
+    // Using isBefore/isAfter for moments.
+    // Overlap if newStart is before existingEnd AND existingStart is before newEnd
+    if (newStart.isBefore(existingEnd) && existingStart.isBefore(newEnd)) {
+      const formattedStart = moment(trip.departDate).format('MM/DD/YYYY');
+      const formattedEnd = moment(trip.arriveDate).format('MM/DD/YYYY');
+      return `Conflict with existing trip to ${trip.to} (${formattedStart} - ${formattedEnd})`;
+    }
+  }
+  return null;
+}
+
 interface FlightSegment {
   from: string;
   to: string;
@@ -237,17 +260,20 @@ export default function AddTrips({ route, navigation }: any) {
 
 
   // Determine if we should lock the mode based on existing trips
+  // OLD: Locked mode if existing trips existed.
+  // NEW: Removed to allow mixed flight types (Direct + Multi-segment) in same plan.
+  /*
   React.useEffect(() => {
     if (isEditMode && existingPlan?.trips && existingPlan.trips.length > 0) {
       const firstTrip = existingPlan.trips[0];
-      // If the trip has multiple segments, lock to detailed mode
       if (firstTrip.hasConnections && firstTrip.segments && firstTrip.segments.length > 1) {
         setInputMode('detailed');
       } else {
         setInputMode('simple');
       }
     }
-  }, [isEditMode, existingPlan]);
+  }, [isEditMode, existingPlan]); 
+  */
 
   // Helper function to validate cities
   const validateCities = () => {
@@ -256,7 +282,15 @@ export default function AddTrips({ route, navigation }: any) {
       if (!fromMatch) {
         setFromError(`"${from}" not recognized. Try: ${VALID_CITIES.slice(0, 3).join(', ')}...`);
       } else if (fromMatch !== from) {
-        setFromError(`Did you mean "${fromMatch}"?`);
+        // Check if it's an airport code (JFK -> New York)
+        // If so, auto-resolve it immediately instead of showing error
+        const upper = from.trim().toUpperCase();
+        if (airportMappings[upper] === fromMatch) {
+          setFrom(fromMatch);
+          setFromError('');
+        } else {
+          setFromError(`Did you mean "${fromMatch}"?`);
+        }
       }
     }
 
@@ -265,7 +299,14 @@ export default function AddTrips({ route, navigation }: any) {
       if (!toMatch) {
         setToError(`"${to}" not recognized. Try: ${VALID_CITIES.slice(0, 3).join(', ')}...`);
       } else if (toMatch !== to) {
-        setToError(`Did you mean "${toMatch}"?`);
+        // Check if it's an airport code (LHR -> London)
+        const upper = to.trim().toUpperCase();
+        if (airportMappings[upper] === toMatch) {
+          setTo(toMatch);
+          setToError('');
+        } else {
+          setToError(`Did you mean "${toMatch}"?`);
+        }
       }
     }
   };
@@ -393,9 +434,16 @@ export default function AddTrips({ route, navigation }: any) {
       return;
     }
 
+
+    // Resolve airport codes
+    let resolvedFrom = from;
+    let resolvedTo = to;
+    if (airportMappings[from.trim().toUpperCase()]) resolvedFrom = airportMappings[from.trim().toUpperCase()];
+    if (airportMappings[to.trim().toUpperCase()]) resolvedTo = airportMappings[to.trim().toUpperCase()];
+
     const segment: FlightSegment = {
-      from,
-      to,
+      from: resolvedFrom,
+      to: resolvedTo,
       departDate,
       departTime,
       arriveDate,
@@ -404,8 +452,8 @@ export default function AddTrips({ route, navigation }: any) {
 
     // Validate the segment
     const validation = validateTrip({
-      from,
-      to,
+      from: resolvedFrom,
+      to: resolvedTo,
       departDate,
       departTime,
       arriveDate,
@@ -490,11 +538,29 @@ export default function AddTrips({ route, navigation }: any) {
       return;
     }
 
+    // Check for overlaps with other trips
+    const overlapError = checkOverlappingTrips(
+      {
+        departDate,
+        departTime,
+        arriveDate,
+        arriveTime
+      },
+      completedTrips,
+      isEditingTrip ? editingTripId : null
+    );
+
+    if (overlapError) {
+      setDateTimeError(overlapError);
+      return;
+    }
+
+    // All valid - add or update trip
     // All valid - add or update trip
     const trip: Trip = {
       id: isEditingTrip && editingTripId ? editingTripId : Date.now().toString(),
-      from,
-      to,
+      from: resolvedFrom,
+      to: resolvedTo,
       departDate,
       departTime,
       arriveDate,
@@ -504,7 +570,11 @@ export default function AddTrips({ route, navigation }: any) {
       connections: [],
     };
 
-    setCompletedTrips([...completedTrips, trip]);
+    if (isEditingTrip && editingTripId) {
+      setCompletedTrips(completedTrips.map(t => t.id === editingTripId ? trip : t));
+    } else {
+      setCompletedTrips([...completedTrips, trip]);
+    }
 
     // Reset form and edit state
     setFrom('');
@@ -513,6 +583,7 @@ export default function AddTrips({ route, navigation }: any) {
     setDepartTime('');
     setArriveDate('');
     setArriveTime('');
+    setCurrentTripSegments([]);
     setIsEditingTrip(false);
     setEditingTripId(null);
   };
@@ -644,9 +715,15 @@ export default function AddTrips({ route, navigation }: any) {
     }
 
     // All valid - add segment
+    // Resolve airport codes
+    let resolvedFrom = from;
+    let resolvedTo = to;
+    if (airportMappings[from.trim().toUpperCase()]) resolvedFrom = airportMappings[from.trim().toUpperCase()];
+    if (airportMappings[to.trim().toUpperCase()]) resolvedTo = airportMappings[to.trim().toUpperCase()];
+
     const segment: FlightSegment = {
-      from,
-      to,
+      from: resolvedFrom,
+      to: resolvedTo,
       departDate,
       departTime,
       arriveDate,
@@ -706,9 +783,15 @@ export default function AddTrips({ route, navigation }: any) {
       return;
     }
 
+    // Resolve airport codes
+    let resolvedFrom = from;
+    let resolvedTo = to;
+    if (airportMappings[from.trim().toUpperCase()]) resolvedFrom = airportMappings[from.trim().toUpperCase()];
+    if (airportMappings[to.trim().toUpperCase()]) resolvedTo = airportMappings[to.trim().toUpperCase()];
+
     const updatedSegment: FlightSegment = {
-      from,
-      to,
+      from: resolvedFrom,
+      to: resolvedTo,
       departDate,
       departTime,
       arriveDate,
@@ -767,9 +850,28 @@ export default function AddTrips({ route, navigation }: any) {
         return;
       }
     }
-    // All segments valid - proceed
+
+    // Check for overlaps with other trips
     const firstSegment = currentTripSegments[0];
     const lastSegment = currentTripSegments[currentTripSegments.length - 1];
+
+    const overlapError = checkOverlappingTrips(
+      {
+        departDate: firstSegment.departDate,
+        departTime: firstSegment.departTime,
+        arriveDate: lastSegment.arriveDate,
+        arriveTime: lastSegment.arriveTime
+      },
+      completedTrips,
+      isEditingTrip ? editingTripId : null
+    );
+
+    if (overlapError) {
+      setSegmentSequenceError(overlapError);
+      return;
+    }
+
+    // All segments valid - proceed
 
     const trip: Trip = {
       id: isEditingTrip && editingTripId ? editingTripId : Date.now().toString(),
@@ -784,7 +886,11 @@ export default function AddTrips({ route, navigation }: any) {
       connections: [],
     };
 
-    setCompletedTrips([...completedTrips, trip]);
+    if (isEditingTrip && editingTripId) {
+      setCompletedTrips(completedTrips.map(t => t.id === editingTripId ? trip : t));
+    } else {
+      setCompletedTrips([...completedTrips, trip]);
+    }
     setCurrentTripSegments([]);
     setFrom('');
     setTo('');
@@ -832,10 +938,13 @@ export default function AddTrips({ route, navigation }: any) {
       const arriveDateObj = new Date(aYear, aMonth - 1, aDay);  // ✅ Local time
       setSelectedArriveDate(arriveDateObj);
       setSelectedArriveTime(new Date(`2000-01-01T${trip.arriveTime}`));
+
+      // Clear any in-progress segments
+      setCurrentTripSegments([]);
     }
 
-    // Remove trip from completed list temporarily (it will be re-added when saved)
-    setCompletedTrips(completedTrips.filter(t => t.id !== trip.id));
+    // Trip stays in the list during edit
+    // setCompletedTrips(completedTrips.filter(t => t.id !== trip.id));
   };
 
   const cancelEditTrip = () => {
@@ -875,15 +984,15 @@ export default function AddTrips({ route, navigation }: any) {
           style={[
             styles.modeButton,
             inputMode === 'simple' && styles.modeButtonActive,
-            isEditMode && inputMode !== 'simple' && styles.modeButtonDisabled
+            isEditingTrip && inputMode !== 'simple' && styles.modeButtonDisabled
           ]}
-          onPress={() => !isEditMode && setInputMode('simple')}
-          disabled={isEditMode}
+          onPress={() => !isEditingTrip && setInputMode('simple')}
+          disabled={isEditingTrip}
         >
           <Text style={[
             styles.modeButtonText,
             inputMode === 'simple' && styles.modeButtonTextActive,
-            isEditMode && inputMode !== 'simple' && styles.modeButtonTextDisabled
+            isEditingTrip && inputMode !== 'simple' && styles.modeButtonTextDisabled
           ]}>
             Direct Flight
           </Text>
@@ -892,20 +1001,54 @@ export default function AddTrips({ route, navigation }: any) {
           style={[
             styles.modeButton,
             inputMode === 'detailed' && styles.modeButtonActive,
-            isEditMode && inputMode !== 'detailed' && styles.modeButtonDisabled
+            isEditingTrip && inputMode !== 'detailed' && styles.modeButtonDisabled
           ]}
-          onPress={() => !isEditMode && setInputMode('detailed')}
-          disabled={isEditMode}
+          onPress={() => !isEditingTrip && setInputMode('detailed')}
+          disabled={isEditingTrip}
         >
           <Text style={[
             styles.modeButtonText,
             inputMode === 'detailed' && styles.modeButtonTextActive,
-            isEditMode && inputMode !== 'detailed' && styles.modeButtonTextDisabled
+            isEditingTrip && inputMode !== 'detailed' && styles.modeButtonTextDisabled
           ]}>
             Multi-Leg Trip
           </Text>
         </TouchableOpacity>
       </View>
+
+      {/* Added Trips Section - MOVED TO TOP FOR EDIT MODE */}
+      {isEditMode && completedTrips.length > 0 && (
+        <View style={{ marginBottom: 16 }}>
+          <Text style={styles.sectionTitle}>Added Trips:</Text>
+          {completedTrips.map(trip => (
+            <View key={trip.id} style={styles.tripCard}>
+              <View style={styles.tripInfo}>
+                <Text style={styles.tripRoute}>{trip.from} {'>'} {trip.to}</Text>
+                <Text style={styles.tripDetail}>
+                  {trip.hasConnections ? `${trip.segments.length} segments` : 'Direct flight'}
+                </Text>
+                <Text style={styles.tripDetail}>
+                  Departs: {moment(trip.departDate).format('MM/DD/YYYY')} {moment(trip.departTime, 'HH:mm').format('h:mm A')}
+                </Text>
+                <Text style={styles.tripDetail}>
+                  Arrives: {moment(trip.arriveDate).format('MM/DD/YYYY')} {moment(trip.arriveTime, 'HH:mm').format('h:mm A')}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                <TouchableOpacity
+                  style={{ padding: 4 }}
+                  onPress={() => editTrip(trip)}
+                >
+                  <Icon name="edit" size={20} color="#00DDD9" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => deleteTrip(trip.id)}>
+                  <Icon name="x" size={20} color="#EF4444" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Current trip in progress (detailed mode only) */}
       {inputMode === 'detailed' && currentTripSegments.length > 0 && (
@@ -917,21 +1060,21 @@ export default function AddTrips({ route, navigation }: any) {
                 <View style={styles.segmentInfo}>
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Icon name="send" size={16} color="#446084" style={{ marginRight: 6 }} />
-                    <Text style={styles.segmentRoute}>{seg.from} → {seg.to}</Text>
+                    <Text style={styles.segmentRoute}>{seg.from} {'>'} {seg.to}</Text>
                   </View>
                   <Text style={styles.segmentTime}>
-                    Depart: {seg.departDate} {seg.departTime}
+                    Depart: {moment(seg.departDate).format('MM/DD/YYYY')} {moment(seg.departTime, 'HH:mm').format('h:mm A')}
                   </Text>
                   <Text style={styles.segmentTime}>
-                    Arrive: {seg.arriveDate} {seg.arriveTime}
+                    Arrive: {moment(seg.arriveDate).format('MM/DD/YYYY')} {moment(seg.arriveTime, 'HH:mm').format('h:mm A')}
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <TouchableOpacity
-                    style={styles.editSegmentButton}
+                    style={{ padding: 4 }}
                     onPress={() => editSegment(index)}
                   >
-                    <Icon name="edit-2" size={16} color="#FFFFFF" />
+                    <Icon name="edit" size={20} color="#00DDD9" />
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => removeSegment(index)}>
                     <Icon name="x" size={20} color="#EF4444" />
@@ -952,222 +1095,190 @@ export default function AddTrips({ route, navigation }: any) {
       )}
 
       {/* Add flight form */}
-      {!((isEditMode || (isEditingTrip && currentTripSegments.length > 0)) && completedTrips.length > 0 && editingSegmentIndex === null && insertAfterIndex === null) && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>
-            {inputMode === 'simple'
-              ? 'Direct Flight Details'
-              : currentTripSegments.length === 0
-                ? 'First Flight Segment'
-                : 'Next Flight Segment'}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>
+          {inputMode === 'simple'
+            ? 'Direct Flight Details'
+            : currentTripSegments.length === 0
+              ? 'First Flight Segment'
+              : 'Next Flight Segment'}
+        </Text>
+
+        <Text style={styles.label}>From</Text>
+        <TextInput
+          style={[styles.input, fromError && styles.inputError]}
+          placeholder="e.g., New York"
+          placeholderTextColor="#94A3B8"
+          value={from}
+          onChangeText={(text) => {
+            setFrom(text);
+            setFromError(''); // Clear error while typing
+          }}
+          onBlur={validateCities}
+        />
+        {fromError ? <Text style={styles.errorText}>{fromError}</Text> : null}
+
+        <Text style={styles.label}>To</Text>
+        <TextInput
+          style={[styles.input, toError && styles.inputError]}
+          placeholder="e.g., Atlanta"
+          placeholderTextColor="#94A3B8"
+          value={to}
+          onChangeText={(text) => {
+            setTo(text);
+            setToError(''); // Clear error while typing
+          }}
+          onBlur={validateCities}
+        />
+        {toError ? <Text style={styles.errorText}>{toError}</Text> : null}
+
+        <Text style={styles.label}>Departure Date</Text>
+        <View style={styles.dateTimeDisplay}>
+          <Text style={[styles.dateTimeText, !departDate && styles.placeholderText]}>
+            {departDate ? moment(departDate).format('MMM D, YYYY') : 'Not selected'}
           </Text>
+          <TouchableOpacity
+            style={styles.selectButton}
+            onPress={() => {
+              if (!departDate) {
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                const formattedDate = `${year}-${month}-${day}`;  // ✅ Local time
 
-          <Text style={styles.label}>From</Text>
-          <TextInput
-            style={[styles.input, fromError && styles.inputError]}
-            placeholder="e.g., New York"
-            placeholderTextColor="#94A3B8"
-            value={from}
-            onChangeText={(text) => {
-              setFrom(text);
-              setFromError(''); // Clear error while typing
-            }}
-            onBlur={() => {
-              if (from.trim()) {
-                const match = findClosestCity(from);
-                if (!match) {
-                  setFromError(`"${from}" not recognized. Try: ${VALID_CITIES.slice(0, 3).join(', ')}...`);
-                } else if (match !== from) {
-                  setFromError(`Did you mean "${match}"?`);
-                } else if (to.trim()) {
-                  // NEW: Check if same as arrival city
-                  const toMatch = findClosestCity(to);
-                  if (toMatch && match === toMatch) {
-                    setFromError('Departure city cannot be the same as arrival city');
-                  }
-                }
+                setSelectedDepartDate(today);
+                setDepartDate(formattedDate);
               }
+              setShowDepartDatePicker(true);
             }}
-          />
-          {fromError ? <Text style={styles.errorText}>{fromError}</Text> : null}
-
-          <Text style={styles.label}>To</Text>
-          <TextInput
-            style={[styles.input, toError && styles.inputError]}
-            placeholder="e.g., Atlanta"
-            placeholderTextColor="#94A3B8"
-            value={to}
-            onChangeText={(text) => {
-              setTo(text);
-              setToError(''); // Clear error while typing
-            }}
-            onBlur={() => {
-              if (to.trim()) {
-                const match = findClosestCity(to);
-                if (!match) {
-                  setToError(`"${to}" not recognized. Try: ${VALID_CITIES.slice(0, 3).join(', ')}...`);
-                } else if (match !== to) {
-                  setToError(`Did you mean "${match}"?`);
-                } else if (from.trim()) {
-                  // NEW: Check if same as departure city
-                  const fromMatch = findClosestCity(from);
-                  if (fromMatch && match === fromMatch) {
-                    setToError('Arrival city cannot be the same as departure city');
-                  }
-                }
-              }
-            }}
-          />
-          {toError ? <Text style={styles.errorText}>{toError}</Text> : null}
-
-          <Text style={styles.label}>Departure Date</Text>
-          <View style={styles.dateTimeDisplay}>
-            <Text style={[styles.dateTimeText, !departDate && styles.placeholderText]}>
-              {departDate || 'Not selected'}
-            </Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => {
-                if (!departDate) {
-                  const today = new Date();
-                  const year = today.getFullYear();
-                  const month = String(today.getMonth() + 1).padStart(2, '0');
-                  const day = String(today.getDate()).padStart(2, '0');
-                  const formattedDate = `${year}-${month}-${day}`;  // ✅ Local time
-
-                  setSelectedDepartDate(today);
-                  setDepartDate(formattedDate);
-                }
-                setShowDepartDatePicker(true);
-              }}
-            >
-              <Text style={styles.selectButtonText}>Select</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.label}>Departure Time</Text>
-          <View style={styles.dateTimeDisplay}>
-            <Text style={[styles.dateTimeText, !departTime && styles.placeholderText]}>
-              {departTime || 'Not selected'}
-            </Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => {
-                validateCities();
-                if (!departTime) {
-                  const now = new Date();
-                  setSelectedDepartTime(now);
-                  const hours = String(now.getHours()).padStart(2, '0');
-                  const minutes = String(now.getMinutes()).padStart(2, '0');
-                  setDepartTime(`${hours}:${minutes}`);
-                }
-                setShowDepartTimePicker(true);
-              }}
-            >
-              <Text style={styles.selectButtonText}>Select</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.label}>Arrival Date</Text>
-          <View style={styles.dateTimeDisplay}>
-            <Text style={[styles.dateTimeText, !arriveDate && styles.placeholderText]}>
-              {arriveDate || 'Not selected'}
-            </Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => {
-                validateCities();
-                if (!arriveDate) {
-                  const today = new Date();
-                  const year = today.getFullYear();
-                  const month = String(today.getMonth() + 1).padStart(2, '0');
-                  const day = String(today.getDate()).padStart(2, '0');
-                  const formattedDate = `${year}-${month}-${day}`;
-
-                  setSelectedArriveDate(today);
-                  setArriveDate(formattedDate);
-                }
-                setShowArriveDatePicker(true);
-              }}
-            >
-              <Text style={styles.selectButtonText}>Select</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.label}>Arrival Time</Text>
-          <View style={styles.dateTimeDisplay}>
-            <Text style={[styles.dateTimeText, !arriveTime && styles.placeholderText]}>
-              {arriveTime || 'Not selected'}
-            </Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => {
-                validateCities();
-                if (!arriveTime) {
-                  const now = new Date();
-                  setSelectedArriveTime(now);
-                  const hours = String(now.getHours()).padStart(2, '0');
-                  const minutes = String(now.getMinutes()).padStart(2, '0');
-                  setArriveTime(`${hours}:${minutes}`);
-                }
-                setShowArriveTimePicker(true);
-              }}
-            >
-              <Text style={styles.selectButtonText}>Select</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Show general date/time errors */}
-          {dateTimeError ? (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>{dateTimeError}</Text>
-            </View>
-          ) : null}
-
-          {inputMode === 'simple' ? (
-            <TouchableOpacity
-              style={[
-                styles.addDirectButton,
-                (fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime) && styles.buttonDisabled
-              ]}
-              onPress={addDirectFlight}
-              disabled={!!(fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime)}
-            >
-              <Text style={styles.addDirectButtonText}>
-                {isEditingTrip ? '✓ Update This Flight' : '✓ Add This Flight'}
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <View>
-              {editingSegmentIndex !== null ? (
-                <TouchableOpacity
-                  style={[
-                    styles.updateSegmentButton,
-                    (fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime) && styles.buttonDisabled
-                  ]}
-                  onPress={updateSegment}
-                  disabled={!!(fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime)}
-                >
-                  <Text style={styles.updateSegmentButtonText}>✓ Update This Segment</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={[
-                    styles.addSegmentButton,
-                    (fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime) && styles.buttonDisabled
-                  ]}
-                  onPress={addSegment}
-                  disabled={!!(fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime)}
-                >
-                  <Text style={styles.addSegmentButtonText}>
-                    {insertAfterIndex !== null ? '+ Insert This Segment' : '+ Add This Segment'}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
+          >
+            <Text style={styles.selectButtonText}>Select</Text>
+          </TouchableOpacity>
         </View>
-      )}
+
+        <Text style={styles.label}>Departure Time</Text>
+        <View style={styles.dateTimeDisplay}>
+          <Text style={[styles.dateTimeText, !departTime && styles.placeholderText]}>
+            {departTime ? moment(departTime, 'HH:mm').format('h:mm A') : 'Not selected'}
+          </Text>
+          <TouchableOpacity
+            style={styles.selectButton}
+            onPress={() => {
+              validateCities();
+              if (!departTime) {
+                const now = new Date();
+                setSelectedDepartTime(now);
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                setDepartTime(`${hours}:${minutes}`);
+              }
+              setShowDepartTimePicker(true);
+            }}
+          >
+            <Text style={styles.selectButtonText}>Select</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.label}>Arrival Date</Text>
+        <View style={styles.dateTimeDisplay}>
+          <Text style={[styles.dateTimeText, !arriveDate && styles.placeholderText]}>
+            {arriveDate ? moment(arriveDate).format('MMM D, YYYY') : 'Not selected'}
+          </Text>
+          <TouchableOpacity
+            style={styles.selectButton}
+            onPress={() => {
+              validateCities();
+              if (!arriveDate) {
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                const formattedDate = `${year}-${month}-${day}`;
+
+                setSelectedArriveDate(today);
+                setArriveDate(formattedDate);
+              }
+              setShowArriveDatePicker(true);
+            }}
+          >
+            <Text style={styles.selectButtonText}>Select</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.label}>Arrival Time</Text>
+        <View style={styles.dateTimeDisplay}>
+          <Text style={[styles.dateTimeText, !arriveTime && styles.placeholderText]}>
+            {arriveTime ? moment(arriveTime, 'HH:mm').format('h:mm A') : 'Not selected'}
+          </Text>
+          <TouchableOpacity
+            style={styles.selectButton}
+            onPress={() => {
+              validateCities();
+              if (!arriveTime) {
+                const now = new Date();
+                setSelectedArriveTime(now);
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                setArriveTime(`${hours}:${minutes}`);
+              }
+              setShowArriveTimePicker(true);
+            }}
+          >
+            <Text style={styles.selectButtonText}>Select</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Show general date/time errors */}
+        {dateTimeError ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{dateTimeError}</Text>
+          </View>
+        ) : null}
+
+        {inputMode === 'simple' ? (
+          <TouchableOpacity
+            style={[
+              styles.addDirectButton,
+              (fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime) && styles.buttonDisabled
+            ]}
+            onPress={addDirectFlight}
+            disabled={!!(fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime)}
+          >
+            <Text style={styles.addDirectButtonText}>
+              {isEditingTrip ? '✓ Update This Flight' : '✓ Add This Flight'}
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <View>
+            {editingSegmentIndex !== null ? (
+              <TouchableOpacity
+                style={[
+                  styles.updateSegmentButton,
+                  (fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime) && styles.buttonDisabled
+                ]}
+                onPress={updateSegment}
+                disabled={!!(fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime)}
+              >
+                <Text style={styles.updateSegmentButtonText}>✓ Update This Segment</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.addSegmentButton,
+                  (fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime) && styles.buttonDisabled
+                ]}
+                onPress={addSegment}
+                disabled={!!(fromError || toError || dateTimeError || !from || !to || !departDate || !departTime || !arriveDate || !arriveTime)}
+              >
+                <Text style={styles.addSegmentButtonText}>
+                  {insertAfterIndex !== null ? '+ Insert This Segment' : '+ Add This Segment'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
 
 
       {(editingSegmentIndex !== null || insertAfterIndex !== null) && (
@@ -1206,34 +1317,38 @@ export default function AddTrips({ route, navigation }: any) {
       {/* Completed trips */}
       {completedTrips.length > 0 && (
         <>
-          <Text style={styles.sectionTitle}>Added Trips:</Text>
-          {completedTrips.map(trip => (
-            <View key={trip.id} style={styles.tripCard}>
-              <View style={styles.tripInfo}>
-                <Text style={styles.tripRoute}>{trip.from} → {trip.to}</Text>
-                <Text style={styles.tripDetail}>
-                  {trip.hasConnections ? `${trip.segments.length} segments` : 'Direct flight'}
-                </Text>
-                <Text style={styles.tripDetail}>
-                  Departs: {trip.departDate} {trip.departTime}
-                </Text>
-                <Text style={styles.tripDetail}>
-                  Arrives: {trip.arriveDate} {trip.arriveTime}
-                </Text>
-              </View>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <TouchableOpacity
-                  style={styles.editTripButton}
-                  onPress={() => editTrip(trip)}
-                >
-                  <Icon name="edit-2" size={16} color="#FFFFFF" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => deleteTrip(trip.id)}>
-                  <Icon name="x" size={20} color="#EF4444" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
+          {!isEditMode && (
+            <>
+              <Text style={styles.sectionTitle}>Added Trips:</Text>
+              {completedTrips.map(trip => (
+                <View key={trip.id} style={styles.tripCard}>
+                  <View style={styles.tripInfo}>
+                    <Text style={styles.tripRoute}>{trip.from} {'>'} {trip.to}</Text>
+                    <Text style={styles.tripDetail}>
+                      {trip.hasConnections ? `${trip.segments.length} segments` : 'Direct flight'}
+                    </Text>
+                    <Text style={styles.tripDetail}>
+                      Departs: {moment(trip.departDate).format('MM/DD/YYYY')} {moment(trip.departTime, 'HH:mm').format('h:mm A')}
+                    </Text>
+                    <Text style={styles.tripDetail}>
+                      Arrives: {moment(trip.arriveDate).format('MM/DD/YYYY')} {moment(trip.arriveTime, 'HH:mm').format('h:mm A')}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    <TouchableOpacity
+                      style={{ padding: 4 }}
+                      onPress={() => editTrip(trip)}
+                    >
+                      <Icon name="edit" size={20} color="#00DDD9" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => deleteTrip(trip.id)}>
+                      <Icon name="x" size={20} color="#EF4444" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
           <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
             <Text style={styles.buttonText}>Continue to Review</Text>
           </TouchableOpacity>
@@ -1539,14 +1654,7 @@ const styles = StyleSheet.create({
     color: '#64748B',
     marginBottom: 2,
   },
-  editTripButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#5EDAD9',
-    borderRadius: 16,
-  },
+
   continueButton: {
     backgroundColor: '#1F4259',
     borderRadius: 16,
@@ -1598,14 +1706,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
-  editSegmentButton: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#5EDAD9',
-    borderRadius: 16,
-  },
+
   insertAfterButton: {
     backgroundColor: '#FCD34D',
     borderRadius: 8,
