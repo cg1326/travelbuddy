@@ -80,8 +80,8 @@ interface Plan {
 interface PlanContextType {
   plans: Plan[];
   userSettings: UserSettings;
-  addPlan: (name: string, trips: Trip[]) => void;
-  updatePlan: (id: string, name: string, trips: Trip[]) => void;
+  addPlan: (name: string, trips: Trip[]) => Plan | undefined;
+  updatePlan: (id: string, name: string, trips: Trip[]) => Plan | undefined;
   deletePlan: (id: string) => void;
   setActivePlan: (id: string) => void;
   getActivePlan: () => Plan | undefined;
@@ -263,7 +263,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const addPlan = (name: string, trips: Trip[]) => {
+  const addPlan = (name: string, trips: Trip[]): Plan | undefined => {
     try {
       console.log('🟢 addPlan() called');
       console.log('➡️ Plan name:', name);
@@ -294,12 +294,15 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       startPersistentNotificationUpdater(updatedPlans, cardStatuses)
         .then(() => console.log('✅ Notification updated successfully'))
         .catch((error) => console.error('❌ Failed to update notification:', error));
+
+      return newPlan;
     } catch (err) {
       console.error('🔥 Error inside addPlan():', err);
+      return undefined;
     }
   };
 
-  const updatePlan = (id: string, name: string, trips: Trip[]) => {
+  const updatePlan = (id: string, name: string, trips: Trip[]): Plan | undefined => {
     try {
       console.log('🟡 updatePlan() called');
       console.log('➡️ Plan ID:', id);
@@ -313,14 +316,17 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
       console.log('✅ Jet lag plans generated successfully.');
 
+      let updatedPlanObj: Plan | undefined;
+
       const updatedPlans = plans.map(plan => {
         if (plan.id === id) {
-          return {
+          updatedPlanObj = {
             ...plan,
             name,
             trips,
             jetLagPlans,
           };
+          return updatedPlanObj;
         }
         return plan;
       });
@@ -333,8 +339,11 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       startPersistentNotificationUpdater(updatedPlans, cardStatuses)
         .then(() => console.log('✅ Notification updated successfully'))
         .catch((error) => console.error('❌ Failed to update notification:', error));
+
+      return updatedPlanObj;
     } catch (err) {
       console.error('🔥 Error inside updatePlan():', err);
+      return undefined;
     }
   };
 

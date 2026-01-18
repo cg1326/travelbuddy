@@ -6,12 +6,7 @@ import Icon from 'react-native-vector-icons/Feather';
 
 function formatTo12Hour(time24: string): string {
   if (!time24) return '';
-
-  const [hours, minutes] = time24.split(':').map(Number);
-  const period = hours >= 12 ? 'PM' : 'AM';
-  const hours12 = hours % 12 || 12;
-
-  return `${hours12}:${String(minutes).padStart(2, '0')} ${period}`;
+  return moment(time24, 'HH:mm').format('h:mm A');
 }
 
 export default function TodayView({ navigation }: any) {
@@ -29,7 +24,7 @@ export default function TodayView({ navigation }: any) {
 
   if (isLoading) {
     return (
-      <View style={styles.container}>
+      <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
@@ -216,31 +211,53 @@ export default function TodayView({ navigation }: any) {
     currentPhase = 'adjust';
   }
 
+  // FIX: If flight has indeed landed (based on time), force adjust phase.
+  // This handles cases where flight arrives on same day as departure (which logic above sets to 'travel')
+  if (minutesSinceLanding > 0) {
+    currentPhase = 'adjust';
+  }
+
   // FIX #1: Only show flight card if flight is TODAY or in progress (not landed yet)
   const showFlightCard = minutesSinceLanding <= 0 && (currentPhase === 'travel' || (currentPhase === 'prepare' && hoursUntilFlight <= 24));
 
   // Filter cards to show only upcoming 0-4 hours
   // Include dailyRoutine cards in adjust phase, exclude info cards
   // Exclude skipped or completed cards
-  const allCards = currentTrip.phases[currentPhase].cards.filter((card: any) => {
-    // Always exclude info cards (headers, flight info)
-    if (card.isInfo) return false;
+  // FIX #2: Helper to get filtered cards from a specific phase
+  const getFilteredCardsForPhase = (phaseName: string) => {
+    return currentTrip.phases[phaseName].cards.filter((card: any) => {
+      // Always exclude info cards (headers, flight info)
+      if (card.isInfo) return false;
 
-    // Check status in global context
-    const statusKey = `${activePlan.id}_${card.id}`;
-    const status = cardStatuses[statusKey];
+      // Check status in global context
+      const statusKey = `${activePlan.id}_${card.id}`;
+      const status = cardStatuses[statusKey];
 
-    // Exclude skipped or completed cards
-    if (status === 'skipped' || status === 'done') return false;
+      // Exclude skipped or completed cards
+      if (status === 'skipped' || status === 'done') return false;
 
-    // In adjust phase, include daily routine cards
-    // In prepare/travel phases, exclude daily routine cards (they don't have specific times)
-    if (currentPhase === 'adjust') {
-      return true; // Include all non-info cards
-    } else {
-      return !card.isDailyRoutine; // Exclude daily routine cards in prepare/travel
-    }
-  });
+      // In adjust phase, include daily routine cards
+      // In prepare/travel phases, exclude daily routine cards (they don't have specific times)
+      if (phaseName === 'adjust') {
+        return true;
+      } else {
+        return !card.isDailyRoutine;
+      }
+    });
+  };
+
+  // Get cards from current phase
+  let allCards = getFilteredCardsForPhase(currentPhase);
+
+  // Also get cards from the NEXT phase to handle boundaries (e.g. Prepare -> Travel)
+  let nextPhase: string | null = null;
+  if (currentPhase === 'prepare') nextPhase = 'travel';
+  else if (currentPhase === 'travel') nextPhase = 'adjust';
+
+  if (nextPhase) {
+    const nextCards = getFilteredCardsForPhase(nextPhase);
+    allCards = [...allCards, ...nextCards];
+  }
 
   // FIX #2: Use correct timezone based on current phase
   const relevantTimezone = currentPhase === 'adjust' ? destinationTimezone : departureTimezone;
@@ -510,12 +527,12 @@ export default function TodayView({ navigation }: any) {
       {/* Flight info card - ONLY show if flight is today or in progress */}
       {showFlightCard && (
         <View style={styles.flightCard}>
-          <Icon name="send" size={28} color="#446084" style={{ marginRight: 12 }} />
           <View style={styles.flightInfo}>
             <Text style={styles.flightTitle}>Your Flight</Text>
-            <Text style={styles.flightTime}>{formatTo12Hour(flightTrip.departTime)}</Text>
-            <Text style={styles.flightRoute}>{flightTrip.from} → {flightTrip.to}{connectionText}</Text>
+            <Text style={styles.flightTime}>Departs {formatTo12Hour(flightTrip.departTime)}</Text>
+            <Text style={styles.flightRoute}>{flightTrip.from} {'>'} {flightTrip.to}{connectionText}</Text>
           </View>
+          <Icon name="send" size={24} color="#000000" />
         </View>
       )}
 
@@ -540,9 +557,11 @@ export default function TodayView({ navigation }: any) {
                 style={styles.infoButton}
                 onPress={() => toggleCard(card.id)}
               >
-                <Text style={[styles.infoButtonText, { color: cardStyle.text }]}>
-                  ⓘ
-                </Text>
+                <Icon
+                  name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={20}
+                  color={cardStyle.text}
+                />
               </TouchableOpacity>
 
               {/* Card header - matching TripDetails layout */}
@@ -615,12 +634,16 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingTop: 60,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+  },
   loadingText: {
     fontFamily: 'Jua',
-    fontSize: 18,
-    color: '#64748B',
-    textAlign: 'center',
-    marginTop: 40,
+    fontSize: 20,
+    color: '#94A3B8',
   },
   title: {
     fontFamily: 'Jua',
@@ -634,60 +657,63 @@ const styles = StyleSheet.create({
     color: '#64748B',
   },
   topPanel: {
-    backgroundColor: '#C7F5E8',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    alignItems: 'center',
+    // Removed background and centering
+    marginBottom: 24, // Increased from 8 to 24 for better separation (especially when flight card is missing)
+    paddingLeft: 20,
+    marginTop: 24,   // Increased from 10 to 24 to move it down further
   },
   topPanelDate: {
     fontFamily: 'Jua',
     fontSize: 18,
-    color: '#1E293B',
-    marginBottom: 4,
+    color: '#000000', // Black
+    marginBottom: 8,
   },
   topPanelStatus: {
     fontFamily: 'Jua',
     fontSize: 16,
-    color: '#1E293B',
-    marginBottom: 4,
+    color: '#000000', // Black
+    marginBottom: 8,
   },
   topPanelFlight: {
     fontFamily: 'Jua',
     fontSize: 14,
-    color: '#64748B',
+    color: '#000000', // Black
   },
   flightCard: {
-    backgroundColor: '#D6EDFF',
+    backgroundColor: '#FFFFFF', // White
     borderRadius: 16,
     padding: 20,
     marginBottom: 24,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    // Shadow style matching plan card
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  flightIcon: {
-    fontSize: 40,
-    marginRight: 16,
-  },
+  // flightIcon removed/unused
   flightInfo: {
     flex: 1,
   },
   flightTitle: {
     fontFamily: 'Jua',
     fontSize: 18,
-    color: '#1E293B',
+    color: '#000000', // Black
     marginBottom: 2,
   },
   flightTime: {
     fontFamily: 'Jua',
-    fontSize: 16,
-    color: '#1E293B',
+    fontSize: 18, // Slightly larger
+    color: '#3C82F6', // Blue
     marginBottom: 4,
   },
   flightRoute: {
     fontFamily: 'Jua',
     fontSize: 14,
-    color: '#64748B',
+    color: '#000000', // Black
   },
   comingUpLabel: {
     fontFamily: 'Jua',
@@ -743,6 +769,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   infoButtonText: {
+    fontFamily: 'Jua',
     fontSize: 18,
   },
   expandedContent: {

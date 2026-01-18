@@ -2,7 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, SafeAreaView, StatusBar, ImageBackground } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PlanProvider, usePlans } from './context/PlanContext';
 import AddPlanName from './screens/AddPlanName';
 import AddTrips from './screens/AddTrips';
@@ -63,8 +64,8 @@ function PlansScreen({ navigation }: any) {
 
   if (isLoading) {
     return (
-      <View style={styles.screen}>
-        <Text style={styles.title}>Loading...</Text>
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
   }
@@ -100,7 +101,14 @@ function PlansScreen({ navigation }: any) {
                       >
                         <View style={styles.planCardContent}>
                           <View style={styles.planCardLeft}>
-                            <Text style={styles.planCardTitle}>{plan.name}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <Text style={styles.planCardTitle}>{plan.name}</Text>
+                              {isActive && (
+                                <View style={styles.activeBadge}>
+                                  <Text style={styles.activeBadgeText}>Active</Text>
+                                </View>
+                              )}
+                            </View>
                             <Text style={styles.planCardSubtitle}>
                               {plan.trips?.length || 0} trip{(plan.trips?.length || 0) !== 1 ? 's' : ''}
                             </Text>
@@ -109,13 +117,8 @@ function PlansScreen({ navigation }: any) {
                                 Departs {moment(departDate).format('MMM D')}
                               </Text>
                             ) : null}
-                            {isActive && (
-                              <View style={styles.activeBadge}>
-                                <Text style={styles.activeBadgeText}>Active</Text>
-                              </View>
-                            )}
                           </View>
-                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                             <TouchableOpacity
                               style={styles.editButton}
                               onPress={(e) => {
@@ -126,7 +129,7 @@ function PlansScreen({ navigation }: any) {
                                 });
                               }}
                             >
-                              <Icon name="edit-2" size={18} color="#FFFFFF" />
+                              <Icon name="edit" size={20} color="#00DDD9" />
                             </TouchableOpacity>
                             <TouchableOpacity
                               onPress={(e) => {
@@ -147,79 +150,82 @@ function PlansScreen({ navigation }: any) {
             )}
 
             {/* Past Plans Section */}
-            {past.length > 0 && (
-              <>
-                <TouchableOpacity
-                  style={styles.pastPlansToggle}
-                  onPress={() => setShowPastPlans(!showPastPlans)}
-                >
-                  <Text style={styles.pastPlansToggleText}>
-                    Past Plans ({past.length})
-                  </Text>
-                  <Icon
-                    name={showPastPlans ? "chevron-up" : "chevron-down"}
-                    size={20}
-                    color="#64748B"
-                  />
-                </TouchableOpacity>
+            {
+              past.length > 0 && (
+                <>
+                  <TouchableOpacity
+                    style={styles.pastPlansToggle}
+                    onPress={() => setShowPastPlans(!showPastPlans)}
+                  >
+                    <Text style={styles.pastPlansToggleText}>
+                      Past Plans ({past.length})
+                    </Text>
+                    <Icon
+                      name={showPastPlans ? "chevron-up" : "chevron-down"}
+                      size={20}
+                      color="#64748B"
+                    />
+                  </TouchableOpacity>
 
-                {showPastPlans && past.map(plan => {
-                  const firstTrip = plan.trips && plan.trips.length > 0 ? plan.trips[0] : null;
-                  const departDate = firstTrip?.departDate || '';
+                  {showPastPlans && past.map(plan => {
+                    const firstTrip = plan.trips && plan.trips.length > 0 ? plan.trips[0] : null;
+                    const departDate = firstTrip?.departDate || '';
 
-                  return (
-                    <View key={plan.id} style={{ marginBottom: 12 }}>
-                      <TouchableOpacity
-                        style={[styles.planCard, styles.pastPlanCard]}
-                        onPress={() => {
-                          navigation.navigate('TripDetail', { plan: plan });
-                        }}
-                      >
-                        <View style={styles.planCardContent}>
-                          <View style={styles.planCardLeft}>
-                            <Text style={styles.planCardTitle}>{plan.name}</Text>
-                            <Text style={styles.planCardSubtitle}>
-                              {plan.trips?.length || 0} trip{(plan.trips?.length || 0) !== 1 ? 's' : ''}
-                            </Text>
-                            {departDate ? (
-                              <Text style={styles.planCardDate}>
-                                Departed {moment(departDate).format('MMM D')}
+                    return (
+                      <View key={plan.id} style={{ marginBottom: 4 }}>
+                        <TouchableOpacity
+                          style={[styles.planCard, styles.pastPlanCard]}
+                          onPress={() => {
+                            navigation.navigate('TripDetail', { plan: plan });
+                          }}
+                        >
+                          <View style={styles.planCardContent}>
+                            <View style={styles.planCardLeft}>
+                              <Text style={styles.planCardTitle}>{plan.name}</Text>
+                              <Text style={styles.planCardSubtitle}>
+                                {plan.trips?.length || 0} trip{(plan.trips?.length || 0) !== 1 ? 's' : ''}
                               </Text>
-                            ) : null}
+                              {departDate ? (
+                                <Text style={styles.planCardDate}>
+                                  Departed {moment(departDate).format('MMM D')}
+                                </Text>
+                              ) : null}
+                            </View>
+                            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                              <TouchableOpacity
+                                style={styles.editButton}
+                                onPress={(e) => {
+                                  e.stopPropagation();
+                                  navigation.navigate('AddPlanName', {
+                                    mode: 'edit',
+                                    existingPlan: plan
+                                  });
+                                }}
+                              >
+                                <Icon name="edit" size={20} color="#00DDD9" />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={(e) => {
+                                  e.stopPropagation();
+                                  deletePlan(plan.id);
+                                }}
+                                style={styles.planDeleteButton}
+                              >
+                                <Icon name="x" size={20} color="#EF4444" />
+                              </TouchableOpacity>
+                            </View>
                           </View>
-                          <View style={{ flexDirection: 'row', gap: 8 }}>
-                            <TouchableOpacity
-                              style={styles.editButton}
-                              onPress={(e) => {
-                                e.stopPropagation();
-                                navigation.navigate('AddPlanName', {
-                                  mode: 'edit',
-                                  existingPlan: plan
-                                });
-                              }}
-                            >
-                              <Icon name="edit-2" size={18} color="#FFFFFF" />
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={(e) => {
-                                e.stopPropagation();
-                                deletePlan(plan.id);
-                              }}
-                              style={styles.planDeleteButton}
-                            >
-                              <Icon name="x" size={20} color="#EF4444" />
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                })}
-              </>
-            )}
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </>
+              )
+            }
           </>
-        )}
-      </ScrollView>
+        )
+        }
+      </ScrollView >
 
       <TouchableOpacity
         style={styles.createPlanButton}
@@ -227,7 +233,7 @@ function PlansScreen({ navigation }: any) {
       >
         <Text style={styles.createPlanButtonText}>+ Create New Plan</Text>
       </TouchableOpacity>
-    </View>
+    </View >
   );
 }
 
@@ -301,8 +307,40 @@ function MainTabs() {
   );
 }
 
-export default function App() {
+
+function SplashScreen() {
+  return (
+    <>
+      <StatusBar hidden />
+      <ImageBackground
+        source={require('./assets/splash.png')}
+        style={styles.splashContainer}
+        resizeMode="cover"
+      />
+    </>
+  );
+}
+
+function MainApp() {
+  const { isLoading } = usePlans();
+  const [isSplashMinTimeElapsed, setSplashMinTimeElapsed] = React.useState(false);
+  const [isSplashMaxTimeElapsed, setSplashMaxTimeElapsed] = React.useState(false);
   const navigationRef = useRef<any>(null);
+
+  useEffect(() => {
+    const minTimer = setTimeout(() => {
+      setSplashMinTimeElapsed(true);
+    }, 2000);
+
+    const maxTimer = setTimeout(() => {
+      setSplashMaxTimeElapsed(true);
+    }, 2500);
+
+    return () => {
+      clearTimeout(minTimer);
+      clearTimeout(maxTimer);
+    };
+  }, []);
 
   useEffect(() => {
     // Handle notification taps
@@ -328,8 +366,19 @@ export default function App() {
     };
   }, []);
 
+  // Show splash if:
+  // 1. Min time (2s) hasn't passed yet
+  // OR
+  // 2. Data is still loading AND Max time (3s) hasn't passed yet
+  // This ensures at least 2s of splash, and at most 3s of splash (even if slow data)
+  const showSplash = !isSplashMinTimeElapsed || (isLoading && !isSplashMaxTimeElapsed);
+
+  if (showSplash) {
+    return <SplashScreen />;
+  }
+
   return (
-    <PlanProvider>
+    <>
       <NotificationUpdater />
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator>
@@ -395,6 +444,14 @@ export default function App() {
           />
         </Stack.Navigator>
       </NavigationContainer>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <PlanProvider>
+      <MainApp />
     </PlanProvider>
   );
 }
@@ -409,7 +466,7 @@ const styles = StyleSheet.create({
   plansTitle: {
     fontFamily: 'Jua',
     fontSize: 28,
-    color: '#1E293B',
+    color: '#000000', // Black
     marginBottom: 20,
   },
   title: {
@@ -435,16 +492,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 20,
-    marginBottom: 12,
+    marginBottom: 4, // Reduced spacing further
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
   planCardActive: {
     backgroundColor: '#C7F5E8',
-    borderWidth: 2,
     borderColor: '#5EDAD9',
   },
   planCardContent: {
@@ -458,27 +516,28 @@ const styles = StyleSheet.create({
   planCardTitle: {
     fontFamily: 'Jua',
     fontSize: 20,
-    color: '#1E293B',
+    color: '#000000', // Black
     marginBottom: 4,
+    marginRight: 8,
   },
   planCardSubtitle: {
     fontFamily: 'Jua',
     fontSize: 14,
-    color: '#64748B',
+    color: '#000000', // Black
     marginBottom: 2,
   },
   planCardDate: {
     fontFamily: 'Jua',
     fontSize: 14,
-    color: '#64748B',
+    color: '#000000', // Black
   },
   activeBadge: {
     backgroundColor: '#5EDAD9',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    alignSelf: 'flex-start',
-    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    // alignSelf handled by parent flex row
+    marginBottom: 4,
   },
   activeBadgeText: {
     fontFamily: 'Jua',
@@ -490,8 +549,8 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#5EDAD9',
-    borderRadius: 20,
+    backgroundColor: 'transparent', // No background
+    // borderRadius: 20,
   },
   planDeleteButton: {
     width: 40,
@@ -538,5 +597,20 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     backgroundColor: '#F9FAFB',
   },
-
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+  },
+  loadingText: {
+    fontFamily: 'Jua',
+    fontSize: 20,
+    color: '#94A3B8',
+  },
+  splashContainer: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
 });

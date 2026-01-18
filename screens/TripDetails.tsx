@@ -64,11 +64,11 @@ interface Trip {
 // Component
 // ───────────────────────────────────────────────
 export default function TripDetail({ route, navigation }: any) {
-  const { plan } = route.params;
+  const { plan, initialTripIndex, initialPhase } = route.params;
   const { cardStatuses, updateCardStatus, batchUpdateCardStatuses } = usePlans(); // Use global state
 
-  const [currentTripIndex, setCurrentTripIndex] = useState(0);
-  const [activePhase, setActivePhase] = useState<'prepare' | 'travel' | 'adjust'>('travel');
+  const [currentTripIndex, setCurrentTripIndex] = useState(initialTripIndex || 0);
+  const [activePhase, setActivePhase] = useState<'prepare' | 'travel' | 'adjust'>(initialPhase || 'travel');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
 
   // OLD: Local state removed
@@ -105,7 +105,7 @@ export default function TripDetail({ route, navigation }: any) {
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>←</Text>
+            <Icon name="arrow-left" size={28} color="#1E293B" />
           </TouchableOpacity>
           <Text style={styles.planName}>Error loading plan</Text>
         </View>
@@ -384,7 +384,8 @@ export default function TripDetail({ route, navigation }: any) {
       return `Preparation Phase – ${currentPhase.dateRange}`;
     }
     if (activePhase === 'travel') {
-      return `Travel Days – ${currentPhase.dateRange}`;
+      const isSingleDate = !currentPhase.dateRange.includes('-');
+      return `Travel ${isSingleDate ? 'Day' : 'Days'} – ${currentPhase.dateRange}`;
     }
     return `Adjustment Phase – ${currentPhase.dateRange}`;
   };
@@ -542,11 +543,11 @@ export default function TripDetail({ route, navigation }: any) {
       {/* ────── Header bar ────── */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>←</Text>
+          <Icon name="arrow-left" size={28} color="#1E293B" />
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.planName}>{plan.name}</Text>
-          <Text style={styles.subtitle}>{moment(trip.departDate).format('M/D/YYYY')} Departure</Text>
+          <Text style={styles.subtitle}>{moment(trip.departDate).format('MMM D, YYYY')} Departure</Text>
         </View>
       </View>
 
@@ -557,12 +558,11 @@ export default function TripDetail({ route, navigation }: any) {
             style={[styles.navButton, currentTripIndex === 0 && styles.navButtonDisabled]}
             onPress={goToPreviousTrip}
             disabled={currentTripIndex === 0}>
-            <Text style={styles.navButtonText}>←</Text>
+            <Icon name="arrow-left" size={24} color="#0D4C4A" />
           </TouchableOpacity>
 
           <View style={styles.tripInfo}>
-            <Text style={styles.tripTitle}>{trip.from} → {trip.to}</Text>
-            <Text style={styles.tripSubtitle}>{trip.departDate}</Text>
+            <Text style={styles.tripTitle}>{trip.from} {'>'} {trip.to}</Text>
           </View>
 
           <TouchableOpacity
@@ -572,7 +572,7 @@ export default function TripDetail({ route, navigation }: any) {
             ]}
             onPress={goToNextTrip}
             disabled={currentTripIndex === plan.trips.length - 1}>
-            <Text style={styles.navButtonText}>→</Text>
+            <Icon name="arrow-right" size={24} color="#0D4C4A" />
           </TouchableOpacity>
         </View>
       )}
@@ -639,7 +639,8 @@ export default function TripDetail({ route, navigation }: any) {
           // Hide header pseudo-cards
           if (
             card.title.includes('Departure Day') ||
-            card.title.includes('Arrival Day')
+            card.title.includes('Arrival Day') ||
+            card.title.includes('In Flight')
           ) {
             return null;
           }
@@ -691,9 +692,11 @@ export default function TripDetail({ route, navigation }: any) {
                     style={styles.infoButton}
                     onPress={() => toggleCard(card.id)}
                   >
-                    <Text style={[styles.infoButtonText, { color: theme.titleColor } as TextStyle]}>
-                      ⓘ
-                    </Text>
+                    <Icon
+                      name={expandedCards.has(card.id) ? 'chevron-up' : 'chevron-down'}
+                      size={20}
+                      color={theme.titleColor}
+                    />
                   </TouchableOpacity>
                 )}
 
@@ -814,7 +817,6 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   },
   headerContent: { flex: 1 },
   backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  backButtonText: { fontFamily: 'Jua', fontSize: 28, color: '#1E293B' },
   planName: { fontFamily: 'Jua', fontSize: 20, color: '#1E293B' },
   subtitle: { fontFamily: 'Jua', fontSize: 14, color: '#64748B', marginTop: 4 },
   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
@@ -832,7 +834,6 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   },
   navButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', backgroundColor: '#5EDAD9', borderRadius: 20 },
   navButtonDisabled: { backgroundColor: '#E5E7EB' },
-  navButtonText: { fontFamily: 'Jua', fontSize: 24, color: '#0D4C4A' },
   tripInfo: { flex: 1, alignItems: 'center', marginHorizontal: 16 },
   tripTitle: { fontFamily: 'Jua', fontSize: 18, color: '#1E293B' },
   tripSubtitle: { fontFamily: 'Jua', fontSize: 14, color: '#64748B' },
@@ -904,6 +905,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     zIndex: 10,
   },
   infoButtonText: {
+    fontFamily: 'Jua',
     fontSize: 18,
     color: '#FFFFFF'
   },

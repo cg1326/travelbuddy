@@ -63,20 +63,80 @@ export default function ReviewPlan({ route, navigation }: any) {
       console.log('Mode:', mode);
       console.log('Existing Plan ID:', existingPlanId);
 
+      let savedPlan;
       if (mode === 'edit' && existingPlanId) {
         // UPDATE existing plan
         console.log('✏️ Updating existing plan');
-        updatePlan(existingPlanId, planName, trips);
+        savedPlan = updatePlan(existingPlanId, planName, trips);
       } else {
         // CREATE new plan
         console.log('➕ Creating new plan');
-        addPlan(planName, trips);
+        savedPlan = addPlan(planName, trips);
       }
 
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'MainTabs', params: { screen: 'Plans' } }],
-      });
+      if (savedPlan) {
+        // Calculate relevant phase and trip
+        const today = moment();
+        let targetTripIndex = 0;
+        let targetPhase = 'prepare';
+
+        // Iterate through trips to find the current active one
+        for (let i = 0; i < savedPlan.trips.length; i++) {
+          const trip = savedPlan.trips[i];
+          const depart = moment(trip.departDate);
+          // Use last segment arrival if available, else trip arrival
+          const arriveStr = (trip.segments && trip.segments.length > 0)
+            ? trip.segments[trip.segments.length - 1].arriveDate
+            : trip.arriveDate;
+          const arrive = moment(arriveStr);
+
+          // Period logic
+          if (today.isBefore(depart, 'day')) {
+            // Future trip. Use this trip, Prepare phase.
+            targetTripIndex = i;
+            targetPhase = 'prepare';
+            break; // Found the next upcoming trip
+          } else if (today.isSameOrAfter(depart, 'day') && today.isSameOrBefore(arrive, 'day')) {
+            // Currently traveling
+            targetTripIndex = i;
+            targetPhase = 'travel';
+            break;
+          } else {
+            // After arrival. It's 'adjust' phase. 
+            // We continue loop to see if there is a NEXT trip that is upcoming.
+            // But if this is the last trip, or we are in the adjust window, we settle here.
+            // User asked: "if after adjust phase, go to adjust phase".
+            targetTripIndex = i;
+            targetPhase = 'adjust';
+            // Don't break yet, check if next trip is actually active/start soon?
+            // Simple logic for now: if we are in the adjust window (say 4 days), stay here.
+            // Otherwise see if next trip starts.
+            // For simplicity per user request: "if adjust phase is over... landing page would still be adjust phase".
+            // So we basically keep overwriting targetTripIndex as we go forward in time.
+          }
+        }
+
+        navigation.reset({
+          index: 1,
+          routes: [
+            { name: 'MainTabs', params: { screen: 'Plans' } }, // Go to tabs first
+            {
+              name: 'TripDetail',
+              params: {
+                plan: savedPlan,
+                initialTripIndex: targetTripIndex,
+                initialPhase: targetPhase
+              }
+            }
+          ],
+        });
+      } else {
+        // Fallback if save failed to return plan
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'MainTabs', params: { screen: 'Plans' } }],
+        });
+      }
     } catch (error) {
       console.error('Error saving plan:', error);
       Alert.alert('Error', 'Failed to save plan');
@@ -94,13 +154,13 @@ export default function ReviewPlan({ route, navigation }: any) {
           <View key={trip.id} style={styles.tripCard}>
             <Text style={styles.tripNumber}>Trip {index + 1}</Text>
             <Text style={styles.tripRoute}>
-              {trip.from} → {trip.to}
+              {trip.from} {'>'} {trip.to}
             </Text>
             <Text style={styles.tripDetail}>
-              Departs: {trip.departDate} at {trip.departTime}
+              Departs: {moment(trip.departDate).format('MMM D, YYYY')} at {moment(trip.departTime, 'HH:mm').format('h:mm A')}
             </Text>
             <Text style={styles.tripDetail}>
-              Arrives: {trip.arriveDate} at {trip.arriveTime}
+              Arrives: {moment(trip.arriveDate).format('MMM D, YYYY')} at {moment(trip.arriveTime, 'HH:mm').format('h:mm A')}
             </Text>
             {trip.hasConnections && trip.segments && (
               <Text style={styles.tripDetail}>
