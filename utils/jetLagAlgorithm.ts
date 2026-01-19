@@ -305,6 +305,9 @@ export const airportMappings: { [key: string]: string } = {
   'MCO': 'Orlando',
   'DTW': 'Detroit',
   'MSP': 'Minneapolis',
+  'SAN': 'San Diego',
+  'TPA': 'Miami', // Tampa uses Miami timezone
+  'PIT': 'Philadelphia', // Pittsburgh uses Philadelphia timezone
 
   // South America
   'GRU': 'São Paulo', 'CGH': 'São Paulo',

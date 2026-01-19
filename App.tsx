@@ -1,8 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, SafeAreaView, StatusBar, ImageBackground } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PlanProvider, usePlans } from './context/PlanContext';
 import AddPlanName from './screens/AddPlanName';
 import AddTrips from './screens/AddTrips';
@@ -10,6 +12,7 @@ import ReviewPlan from './screens/ReviewPlan';
 import TodayView from './screens/TodayView';
 import ProfileSettings from './screens/ProfileSettings';
 import TripDetail from './screens/TripDetails';
+import IntroCards from './screens/IntroCards';
 import moment from 'moment';
 import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
 import Icon from 'react-native-vector-icons/Feather';
@@ -309,13 +312,14 @@ function MainTabs() {
 
 function SplashScreen() {
   return (
-    <View style={styles.splashContainer}>
-      <Image
+    <>
+      <StatusBar hidden />
+      <ImageBackground
         source={require('./assets/splash.png')}
-        style={styles.splashImage}
+        style={styles.splashContainer}
         resizeMode="cover"
       />
-    </View>
+    </>
   );
 }
 
@@ -323,7 +327,32 @@ function MainApp() {
   const { isLoading } = usePlans();
   const [isSplashMinTimeElapsed, setSplashMinTimeElapsed] = React.useState(false);
   const [isSplashMaxTimeElapsed, setSplashMaxTimeElapsed] = React.useState(false);
+  const [hasSeenIntro, setHasSeenIntro] = React.useState<boolean | null>(null);
   const navigationRef = useRef<any>(null);
+
+  useEffect(() => {
+    checkIntroStatus();
+  }, []);
+
+  const checkIntroStatus = async () => {
+    try {
+      const value = await AsyncStorage.getItem('@travelbuddy_has_seen_intro');
+      console.log('DEBUG: Intro Status Value:', value); // <--- DEBUG LOG
+      setHasSeenIntro(value === 'true'); // Correct logic
+    } catch (e) {
+      console.error('Error checking intro status', e);
+      setHasSeenIntro(false);
+    }
+  };
+
+  const handleFinishIntro = async () => {
+    try {
+      await AsyncStorage.setItem('@travelbuddy_has_seen_intro', 'true');
+      setHasSeenIntro(true);
+    } catch (e) {
+      console.error('Error saving intro status', e);
+    }
+  };
 
   useEffect(() => {
     const minTimer = setTimeout(() => {
@@ -371,15 +400,25 @@ function MainApp() {
   // This ensures at least 2s of splash, and at most 3s of splash (even if slow data)
   const showSplash = !isSplashMinTimeElapsed || (isLoading && !isSplashMaxTimeElapsed);
 
-  if (showSplash) {
+  console.log('RENDER DEBUG: hasSeenIntro:', hasSeenIntro, 'showSplash:', showSplash);
+
+  if (showSplash || hasSeenIntro === null) {
     return <SplashScreen />;
   }
 
   return (
     <>
       <NotificationUpdater />
-      <NavigationContainer ref={navigationRef}>
-        <Stack.Navigator>
+      <NavigationContainer ref={navigationRef} key={hasSeenIntro ? 'intro-seen' : 'intro-not-seen'}>
+        <Stack.Navigator initialRouteName={!hasSeenIntro ? "IntroCards" : "MainTabs"}>
+          {!hasSeenIntro && (
+            <Stack.Screen
+              name="IntroCards"
+              options={{ headerShown: false }}
+            >
+              {(props) => <IntroCards {...props} onFinish={handleFinishIntro} />}
+            </Stack.Screen>
+          )}
           <Stack.Screen
             name="MainTabs"
             component={MainTabs}
@@ -608,9 +647,6 @@ const styles = StyleSheet.create({
   },
   splashContainer: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  splashImage: {
     width: '100%',
     height: '100%',
   },
