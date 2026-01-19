@@ -12,16 +12,24 @@ import {
 } from 'react-native';
 import { usePlans } from '../context/PlanContext';
 import moment from 'moment-timezone';
+import { CommonActions } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
+// Using the "Clean" images (Xa) as base
 const SLIDES = [
-    { id: '0', image: require('../assets/images/Intro Card 0.png') },
-    { id: '1', image: require('../assets/images/Intro Card 1.png') },
-    { id: '2', image: require('../assets/images/Intro Card 2.png') },
-    { id: '3', image: require('../assets/images/Intro Card 3.png') },
-    { id: '4', image: require('../assets/images/Intro Card 4.png') },
-    { id: '5', image: require('../assets/images/Intro Card 5a.png'), isLast: true },
+    {
+        id: '0',
+        image: require('../assets/images/Intro Card 1a.png'), // Map 0 -> 1a (Intro Start) per request logic if possible, or just 1a as first
+        // Actually user said: "Intro Card 1a, 2a, 3a, 4a, 5a". 
+        // Slide 0 usually is layout. Let's assume indices match User's description 1-5.
+        // I will use 0-4 arrays.
+        slideIndex: 1
+    },
+    { id: '1', image: require('../assets/images/Intro Card 2a.png'), slideIndex: 2 },
+    { id: '2', image: require('../assets/images/Intro Card 3a.png'), slideIndex: 3 },
+    { id: '3', image: require('../assets/images/Intro Card 4a.png'), slideIndex: 4 },
+    { id: '4', image: require('../assets/images/Intro Card 5a.png'), slideIndex: 5, isLast: true },
 ];
 
 export default function IntroCards({ navigation, onFinish }: { navigation: any, onFinish: () => void }) {
@@ -30,8 +38,19 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
     const { addPlan } = usePlans();
     const [isCreatingSample, setIsCreatingSample] = useState(false);
 
+    // Navigation Logic
+    const handleNext = () => {
+        if (currentIndex < SLIDES.length - 1) {
+            flatListRef.current?.scrollToIndex({
+                index: currentIndex + 1,
+                animated: true,
+            });
+        }
+    };
+
     const handleCreatePlan = () => {
-        onFinish(); // Mark as seen
+        // Navigate to creating plan. 
+        // do NOT call onFinish() here yet, so stack history is preserved.
         navigation.navigate('AddPlanName');
     };
 
@@ -39,28 +58,26 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
         setIsCreatingSample(true);
 
         // SMART ORIGIN LOGIC
-        // Guess user's timezone to find a relevant departure city
-        const userTz = moment.tz.guess(); // e.g., "America/New_York"
-        let originCity = 'Los Angeles'; // Default
-        let originTz = 'America/Los_Angeles';
+        const userTz = moment.tz.guess();
+        let originCity = 'Los Angeles';
+        let originCode = 'LAX';
 
-        // Simple mapping for demo purposes
-        if (userTz.includes('New_York')) originCity = 'New York';
-        else if (userTz.includes('Chicago')) originCity = 'Chicago';
-        else if (userTz.includes('London')) originCity = 'London';
-        else if (userTz.includes('Paris')) originCity = 'Paris';
-        else if (userTz.includes('Tokyo')) originCity = 'Tokyo';
+        if (userTz.includes('New_York')) { originCity = 'New York'; originCode = 'JFK'; }
+        else if (userTz.includes('Chicago')) { originCity = 'Chicago'; originCode = 'ORD'; }
+        else if (userTz.includes('London')) { originCity = 'London'; originCode = 'LHR'; }
+        else if (userTz.includes('Paris')) { originCity = 'Paris'; originCode = 'CDG'; }
+        else if (userTz.includes('Tokyo')) { originCity = 'Tokyo'; originCode = 'HND'; }
 
         // SMART DESTINATION
-        // Ensure destination is far enough away to be interesting
         let destCity = 'London';
-        if (originCity === 'London' || originCity === 'Paris') destCity = 'Tokyo';
-        if (originCity === 'Tokyo') destCity = 'Los Angeles';
-        if (originCity === 'New York') destCity = 'Paris';
+        let destCode = 'LHR';
+        if (originCity === 'London' || originCity === 'Paris') { destCity = 'Tokyo'; destCode = 'HND'; }
+        if (originCity === 'Tokyo') { destCity = 'Los Angeles'; destCode = 'LAX'; }
+        if (originCity === 'New York') { destCity = 'Paris'; destCode = 'CDG'; }
 
-        // DATES: Depart in 2 days, Return in 10 days
+        // DATES
         const departDate = moment().add(2, 'days').format('YYYY-MM-DD');
-        const arriveDate = moment().add(3, 'days').format('YYYY-MM-DD'); // Overnight flight
+        const arriveDate = moment().add(3, 'days').format('YYYY-MM-DD');
 
         const sampleTrip = {
             id: `sample-${Date.now()}`,
@@ -72,18 +89,23 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
             arriveTime: '10:00',
             hasConnections: false,
             segments: [],
-            connections: []
+            connections: [] // In a real app we'd fill this, but this is a stub
         };
 
-        // Create the plan
         await addPlan('Sample Trip', [sampleTrip]);
 
-        // Finish onboarding and go to Today view
+        // NOW we finish intro, as they have entered the "Main" app flow
         onFinish();
-        navigation.reset({
-            index: 0,
-            routes: [{ name: 'MainTabs', params: { screen: 'Today' } }],
-        });
+
+        // Reset to MainTabs with Today selected
+        navigation.dispatch(
+            CommonActions.reset({
+                index: 0,
+                routes: [
+                    { name: 'MainTabs', params: { screen: 'Today' } },
+                ],
+            })
+        );
 
         setIsCreatingSample(false);
     };
@@ -91,11 +113,34 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
     const renderItem = ({ item, index }: { item: any, index: number }) => {
         return (
             <View style={styles.slide}>
-                <Image source={item.image} style={styles.image} resizeMode="cover" />
+                <Image source={item.image} style={styles.image} resizeMode="contain" />
 
-                {/* Overlay Buttons for Last Slide */}
-                {item.isLast && (
+                {/* Overlay Content */}
+                {!item.isLast ? (
+                    // Slides 1-4 (Indices 0-3)
                     <View style={styles.buttonContainer}>
+                        {/* "Next" or "Get Started" logic? User asked for 'Next' and 'Get Started'. 
+                 Usually 'Next' for intermediates, maybe 'Get Started' for 4?
+                 Let's stick to 'Next' for 1-4 for now unless specific instructions.
+              */}
+                        <TouchableOpacity
+                            style={styles.primaryButton}
+                            onPress={handleNext}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.primaryButtonText}>Next</Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    // Last Slide (5)
+                    <View style={styles.buttonContainerLast}>
+                        {/* Text Block */}
+                        <View style={styles.textBlock}>
+                            <Text style={styles.bodyText}>
+                                Don't have a trip yet? Try a sample plan to see how it works.
+                            </Text>
+                        </View>
+
                         <TouchableOpacity
                             style={styles.primaryButton}
                             onPress={handleCreatePlan}
@@ -111,7 +156,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                             activeOpacity={0.6}
                         >
                             <Text style={styles.secondaryButtonText}>
-                                {isCreatingSample ? 'Loading...' : 'View Sample Plan'}
+                                {isCreatingSample ? 'Creating...' : 'View Sample Plan'}
                             </Text>
                         </TouchableOpacity>
                     </View>
@@ -120,6 +165,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
         );
     };
 
+    // Pagination Logic to sync currentIndex
     const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
         if (viewableItems.length > 0) {
             setCurrentIndex(viewableItems[0].index);
@@ -147,7 +193,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 })}
             />
 
-            {/* Pagination Dots (Hide on last slide if you want, or keep) */}
+            {/* Pagination Dots */}
             <View style={styles.pagination}>
                 {SLIDES.map((_, index) => (
                     <View
@@ -166,7 +212,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#FFFFFF', // Clean white background for safe areas
     },
     slide: {
         width: width,
@@ -174,23 +220,50 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         position: 'relative',
+        backgroundColor: '#FFFFFF',
     },
     image: {
         width: width,
-        height: height,
+        height: '100%', // Fills height
+        position: 'absolute',
+        top: 0,
     },
+
+    // Container for Slides 1-4 (Just button at bottom)
     buttonContainer: {
         position: 'absolute',
-        bottom: 80, // Adjust based on the "safe area" in the design
+        bottom: 80,
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
-        gap: 16,
     },
+
+    // Container for Last Slide (Text + Two Buttons)
+    buttonContainerLast: {
+        position: 'absolute',
+        bottom: 60, // Slightly lower to fit more content
+        width: '100%',
+        paddingHorizontal: 30,
+        alignItems: 'center',
+        gap: 12, // Gap between elements
+    },
+
+    textBlock: {
+        marginBottom: 8,
+        paddingHorizontal: 10,
+    },
+    bodyText: {
+        fontFamily: 'Jua',
+        fontSize: 16,
+        color: '#1F4259', // Dark Navy
+        textAlign: 'center',
+        lineHeight: 22,
+    },
+
     primaryButton: {
-        backgroundColor: '#1F4259', // Dark Navy from app theme
+        backgroundColor: '#1F4259', // Dark Navy
         borderRadius: 16,
-        paddingVertical: 18,
+        paddingVertical: 16,
         width: '100%',
         alignItems: 'center',
         shadowColor: '#000',
@@ -212,10 +285,11 @@ const styles = StyleSheet.create({
     },
     secondaryButtonText: {
         fontFamily: 'Jua',
-        color: '#1F4259', // Matching Dark Navy text
+        color: '#1F4259',
         fontSize: 16,
         textDecorationLine: 'underline',
     },
+
     pagination: {
         position: 'absolute',
         bottom: 40,
@@ -224,6 +298,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         gap: 8,
+        // Hide pagination on last slide to avoid clutter? Or keep it. 
+        // Mockups often keep it.
     },
     dot: {
         width: 8,
@@ -232,11 +308,11 @@ const styles = StyleSheet.create({
     },
     activeDot: {
         backgroundColor: '#1F4259',
-        width: 12, // Slightly larger active dot
+        width: 12,
         height: 12,
         borderRadius: 6,
     },
     inactiveDot: {
-        backgroundColor: '#CBD5E1', // Slate 300
+        backgroundColor: '#CBD5E1',
     },
 });

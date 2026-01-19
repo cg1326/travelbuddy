@@ -410,14 +410,12 @@ function MainApp() {
       <NotificationUpdater />
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator initialRouteName={!hasSeenIntro ? "IntroCards" : "MainTabs"}>
-          {!hasSeenIntro && (
-            <Stack.Screen
-              name="IntroCards"
-              options={{ headerShown: false }}
-            >
-              {(props) => <IntroCards {...props} onFinish={handleFinishIntro} />}
-            </Stack.Screen>
-          )}
+          <Stack.Screen
+            name="IntroCards"
+            options={{ headerShown: false }}
+          >
+            {(props) => <IntroCards {...props} onFinish={handleFinishIntro} />}
+          </Stack.Screen>
           <Stack.Screen
             name="MainTabs"
             component={MainTabs}
