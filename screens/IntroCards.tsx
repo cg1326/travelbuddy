@@ -52,7 +52,6 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
     };
 
     const handleCreatePlan = () => {
-        // Navigate to creating plan.
         navigation.navigate('AddPlanName');
     };
 
@@ -63,7 +62,6 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
         const userTz = moment.tz.guess();
         let originCity = 'Los Angeles';
 
-        // Basic city guessing logic
         if (userTz.includes('New_York')) originCity = 'New York';
         else if (userTz.includes('Chicago')) originCity = 'Chicago';
         else if (userTz.includes('London')) originCity = 'London';
@@ -159,12 +157,12 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                         </View>
 
                         <TouchableOpacity
-                            style={styles.secondaryButton}
+                            style={[styles.primaryButton, styles.greyButton]} // GREY BUTTON #B7B5B5, Filled
                             onPress={handleSamplePlan}
                             disabled={isCreatingSample}
-                            activeOpacity={0.6}
+                            activeOpacity={0.8}
                         >
-                            <Text style={[styles.secondaryButtonText, { color: '#B7B5B5' }]}>
+                            <Text style={styles.primaryButtonText}>
                                 {isCreatingSample ? 'Creating...' : 'View Sample Plan'}
                             </Text>
                         </TouchableOpacity>
@@ -295,18 +293,8 @@ const styles = StyleSheet.create({
     orangeButton: {
         backgroundColor: '#FF8000',
     },
-
-    secondaryButton: {
-        backgroundColor: 'transparent',
-        paddingVertical: 12,
-        width: '100%',
-        alignItems: 'center',
-    },
-    secondaryButtonText: {
-        fontFamily: 'Jua',
-        color: '#B7B5B5', // Grey override handled inline or here
-        fontSize: 16,
-        textDecorationLine: 'underline',
+    greyButton: {
+        backgroundColor: '#B7B5B5', // Grey Filled
     },
 
     pagination: {
