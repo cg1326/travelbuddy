@@ -157,12 +157,12 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                         </View>
 
                         <TouchableOpacity
-                            style={[styles.primaryButton, styles.greyButton]} // GREY BUTTON #B7B5B5, Filled
+                            style={[styles.primaryButton, styles.greyButtonSmall]} // GREY BUTTON (SMALLER)
                             onPress={handleSamplePlan}
                             disabled={isCreatingSample}
                             activeOpacity={0.8}
                         >
-                            <Text style={styles.primaryButtonText}>
+                            <Text style={[styles.primaryButtonText, { fontSize: 16 }]}>
                                 {isCreatingSample ? 'Creating...' : 'View Sample Plan'}
                             </Text>
                         </TouchableOpacity>
@@ -263,13 +263,13 @@ const styles = StyleSheet.create({
     bodyText: {
         fontFamily: 'Jua',
         fontSize: 16,
-        color: '#1F4259',
+        color: '#757575', // <--- UPDATED COLOR
         textAlign: 'center',
         lineHeight: 22,
     },
 
     primaryButton: {
-        backgroundColor: '#1F4259', // Default Navy for "Next"
+        backgroundColor: '#1F4259',
         borderRadius: 16,
         paddingVertical: 16,
         width: '100%',
@@ -293,8 +293,14 @@ const styles = StyleSheet.create({
     orangeButton: {
         backgroundColor: '#FF8000',
     },
-    greyButton: {
-        backgroundColor: '#B7B5B5', // Grey Filled
+
+    // SMALLER GREY BUTTON
+    greyButtonSmall: {
+        backgroundColor: '#B7B5B5',
+        width: '85%', // Reduced Width
+        paddingVertical: 12, // Reduced Padding (Height)
+        // borderRadius: 12, // Optional: slightly smaller radius? Keep consist for family look though.
+        // Let's keep radius 16 for style match, just smaller dimensions.
     },
 
     pagination: {
