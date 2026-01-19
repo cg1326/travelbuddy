@@ -141,32 +141,38 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
 
                 {/* === SLIDE 5: END === */}
                 {item.type === 'end' && (
-                    <View style={styles.buttonContainerLast}>
-                        <TouchableOpacity
-                            style={[styles.primaryButton, styles.orangeButton]} // ORANGE #FF8000
-                            onPress={handleCreatePlan}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.primaryButtonText}>+ Create New Plan</Text>
-                        </TouchableOpacity>
-
-                        <View style={styles.textBlock}>
-                            <Text style={styles.bodyText}>
-                                Don't have a trip yet? Try a sample plan to see how it works.
-                            </Text>
+                    <>
+                        {/* GROUP 1: ORANGE BUTTON (High up) */}
+                        <View style={styles.orangeButtonContainer}>
+                            <TouchableOpacity
+                                style={[styles.primaryButton, styles.orangeButton]}
+                                onPress={handleCreatePlan}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={styles.primaryButtonText}>+ Create New Plan</Text>
+                            </TouchableOpacity>
                         </View>
 
-                        <TouchableOpacity
-                            style={[styles.primaryButton, styles.greyButtonSmall]} // GREY BUTTON (SMALLER)
-                            onPress={handleSamplePlan}
-                            disabled={isCreatingSample}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={[styles.primaryButtonText, { fontSize: 16 }]}>
-                                {isCreatingSample ? 'Creating...' : 'View Sample Plan'}
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
+                        {/* GROUP 2: SAMPLE INFO (Lower down) */}
+                        <View style={styles.sampleContainer}>
+                            <View style={styles.textBlock}>
+                                <Text style={styles.bodyText}>
+                                    Don't have a trip yet? Try a sample plan to see how it works.
+                                </Text>
+                            </View>
+
+                            <TouchableOpacity
+                                style={[styles.primaryButton, styles.greyButtonSmall]}
+                                onPress={handleSamplePlan}
+                                disabled={isCreatingSample}
+                                activeOpacity={0.8}
+                            >
+                                <Text style={[styles.primaryButtonText, { fontSize: 16 }]}>
+                                    {isCreatingSample ? 'Creating...' : 'View Sample Plan'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </>
                 )}
             </View>
         );
@@ -201,7 +207,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 })}
             />
 
-            {/* Pagination Dots (MOVED TO TOP) */}
+            {/* Pagination Dots (MOVED DOWN) */}
             <View style={styles.pagination}>
                 {SLIDES.map((_, index) => (
                     <View
@@ -246,20 +252,31 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
 
-    // End Slide Container (MOVED UP)
-    buttonContainerLast: {
+    // === LAST SLIDE SPLIT CONTAINERS ===
+
+    // 1. Orange Button (Higher)
+    orangeButtonContainer: {
         position: 'absolute',
-        bottom: 160, // <--- CHANGED from 60 to 160 to match mockup height
+        bottom: 220, // Pushed up significantly to separate from the text group
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
-        gap: 16,
+    },
+
+    // 2. Sample Plan Group (Lower, aligned with standard button area)
+    sampleContainer: {
+        position: 'absolute',
+        bottom: 60, // Sits lower
+        width: '100%',
+        paddingHorizontal: 30,
+        alignItems: 'center',
+        gap: 12, // Gap between Text and Button
     },
 
     textBlock: {
         marginBottom: 0,
         marginTop: 0,
-        paddingHorizontal: 20,
+        paddingHorizontal: 30,
     },
     bodyText: {
         fontFamily: 'Jua',
@@ -302,10 +319,10 @@ const styles = StyleSheet.create({
         paddingVertical: 12,
     },
 
-    // PAGINATION MOVED TO TOP
+    // PAGINATION MOVED FURTHER DOWN
     pagination: {
         position: 'absolute',
-        top: 60, // <--- CHANGED (Moved to top)
+        top: 110, // <--- CHANGED (Moved further down as requested)
         flexDirection: 'row',
         width: '100%',
         justifyContent: 'center',
