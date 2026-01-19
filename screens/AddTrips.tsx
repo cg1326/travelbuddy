@@ -9,6 +9,10 @@ import {
   Platform,
   Alert,
   Modal,
+  KeyboardAvoidingView,
+  Animated,
+  Keyboard,
+  Dimensions,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment-timezone';
@@ -265,8 +269,45 @@ export default function AddTrips({ route, navigation }: any) {
   const [showImportDatePicker, setShowImportDatePicker] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
+  const [flightErrorMsg, setFlightErrorMsg] = useState<string | null>(null);
   const [flightOptions, setFlightOptions] = useState<any[]>([]);
   const [showFlightSelection, setShowFlightSelection] = useState(false);
+
+  // Animation for Error Overlay
+  const slideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
+  const bgOpacity = React.useRef(new Animated.Value(0)).current;
+  const [displayedError, setDisplayedError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (flightErrorMsg) {
+      setDisplayedError(flightErrorMsg);
+      Animated.parallel([
+        Animated.timing(bgOpacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        })
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(bgOpacity, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: Dimensions.get('window').height,
+          duration: 300,
+          useNativeDriver: true,
+        })
+      ]).start(() => setDisplayedError(null));
+    }
+  }, [flightErrorMsg]);
 
   // Debug: Monitor flight selection modal state
   useEffect(() => {
@@ -336,13 +377,14 @@ export default function AddTrips({ route, navigation }: any) {
       // Success popup removed per user request
     } catch (error) {
       console.error('Error processing flight data:', error);
-      Alert.alert('Error', 'Failed to process flight data. Please try again.');
+      setFlightErrorMsg('Failed to process flight data. Please try again.');
     }
   };
 
   const handleImportFlight = async () => {
+    Keyboard.dismiss(); // Dismiss keyboard so error is visible
     if (!importFlightNum.trim()) {
-      Alert.alert('Error', 'Please enter a flight number (e.g. UA 261)');
+      setFlightErrorMsg('Please enter a flight number (e.g. UA 261)');
       return;
     }
 
@@ -377,9 +419,9 @@ export default function AddTrips({ route, navigation }: any) {
 
       // Debugging Check: Did we receive times?
       if (!flightData.departure.time && !flightData.arrival.time) {
-        Alert.alert("Missing Data", "The Airline API found the flight path but returned NO TIME data. This usually means the flight is too far in the future or the airline hasn't published the schedule yet.");
+        setFlightErrorMsg("The Airline API found the flight path but returned NO TIME data. This usually means the flight is too far in the future or the airline hasn't published the schedule yet.");
       } else if (!flightData.departure.time) {
-        Alert.alert("Partial Data", "We found the flight, but the Departure Time is missing from the airline data.");
+        setFlightErrorMsg("We found the flight, but the Departure Time is missing from the airline data.");
       }
 
       // Autofill the form with mapped city names
@@ -423,7 +465,7 @@ export default function AddTrips({ route, navigation }: any) {
       // Success popup removed per user request
 
     } catch (err: any) {
-      setImporting(false);
+      setIsImporting(false);
 
       let errorMsg = "Please check your flight number and date and try again.";
       // Check for common error keywords from backend
@@ -435,7 +477,7 @@ export default function AddTrips({ route, navigation }: any) {
         errorMsg = "Service is temporarily unavailable (Provider Error). Please enter details manually.";
       }
 
-      Alert.alert("Couldn't find flight", errorMsg);
+      setFlightErrorMsg(errorMsg);
     } finally {
       setIsImporting(false);
     }
@@ -1647,7 +1689,10 @@ export default function AddTrips({ route, navigation }: any) {
         animationType="slide"
         onRequestClose={() => setShowImportModal(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Import Flight</Text>
             <Text style={styles.modalSubtitle}>Enter your flight details to auto-fill.</Text>
@@ -1694,30 +1739,66 @@ export default function AddTrips({ route, navigation }: any) {
               </TouchableOpacity>
             </View>
 
-            {/* Inline Date Picker Overlay for iOS (Inside the Modal) - Centered */}
-            {Platform.OS === 'ios' && showImportDatePicker && (
-              <View style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, justifyContent: 'center', alignItems: 'center', zIndex: 50, backgroundColor: 'rgba(0,0,0,0.3)' }}>
-                <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 16, width: '90%', shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 }}>
-                    <TouchableOpacity onPress={() => setShowImportDatePicker(false)} style={{ padding: 4 }}>
-                      <Text style={{ fontFamily: 'Jua', color: '#0D4C4A', fontSize: 16 }}>Done</Text>
-                    </TouchableOpacity>
+            {/* Inline Date Picker Modal for iOS */}
+            {Platform.OS === 'ios' && (
+              <Modal
+                visible={showImportDatePicker}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowImportDatePicker(false)}
+              >
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' }}>
+                  <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 16, width: '90%', shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 }}>
+                      <TouchableOpacity onPress={() => setShowImportDatePicker(false)} style={{ padding: 4 }}>
+                        <Text style={{ fontFamily: 'Jua', color: '#0D4C4A', fontSize: 16 }}>Done</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <DateTimePicker
+                      value={importDate}
+                      mode="date"
+                      display="inline"
+                      onChange={(event, date) => {
+                        if (date) setImportDate(date);
+                      }}
+                      textColor="#1E293B"
+                      accentColor="#0D4C4A"
+                    />
                   </View>
-                  <DateTimePicker
-                    value={importDate}
-                    mode="date"
-                    display="inline"
-                    onChange={(event, date) => {
-                      if (date) setImportDate(date);
-                    }}
-                    textColor="#1E293B"
-                    accentColor="#0D4C4A"
-                  />
                 </View>
-              </View>
+              </Modal>
             )}
           </View>
-        </View>
+
+          {/* Error Overlay (Inside Import Modal) - Animated */}
+          {!!displayedError && (
+            <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]} pointerEvents="box-none">
+              {/* Background Backdrop - Fades */}
+              <Animated.View style={[StyleSheet.absoluteFill, {
+                backgroundColor: 'rgba(0,0,0,0.5)',
+                opacity: bgOpacity
+              }]} />
+
+              {/* Slider Content - Slides */}
+              <Animated.View style={[styles.modalOverlay, {
+                transform: [{ translateY: slideAnim }]
+              }]}>
+                <View style={styles.modalContent}>
+                  <Text style={[styles.modalTitle, { color: '#EF4444' }]}>Error</Text>
+                  <Text style={[styles.modalSubtitle, { marginBottom: 24 }]}>{displayedError}</Text>
+                  <TouchableOpacity
+                    style={[styles.addDirectButton, { width: '100%', marginTop: 0, backgroundColor: '#EF4444' }]}
+                    onPress={() => setFlightErrorMsg(null)}
+                  >
+                    <Text style={styles.addDirectButtonText}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
+            </View>
+          )}
+
+
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Success Modal (Custom font) */}
@@ -1740,11 +1821,13 @@ export default function AddTrips({ route, navigation }: any) {
         </View>
       </Modal>
 
+
+
       {/* Flight Selection Modal (Multiple Routes) */}
       <Modal
         visible={showFlightSelection}
         transparent={true}
-        animationType="fade"
+        animationType="slide"
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { maxHeight: '80%' }]}>
@@ -1771,13 +1854,13 @@ export default function AddTrips({ route, navigation }: any) {
                   }}
                 >
                   <Text style={{ fontFamily: 'Jua', fontSize: 18, color: '#0D4C4A', marginBottom: 4 }}>
-                    {mapIATAToCity(flight.departure.iata)} > {mapIATAToCity(flight.arrival.iata)}
+                    {mapIATAToCity(flight.departure.iata)} {'>'} {mapIATAToCity(flight.arrival.iata)}
                   </Text>
                   <Text style={{ fontFamily: 'Jua', fontSize: 14, color: '#64748B' }}>
                     Departs {moment(flight.departure.time).format('h:mm A')}
                   </Text>
                   <Text style={{ fontFamily: 'Jua', fontSize: 12, color: '#94A3B8' }}>
-                    {flight.departure.airport} > {flight.arrival.airport}
+                    {flight.departure.airport} {'>'} {flight.arrival.airport}
                   </Text>
                 </TouchableOpacity>
               ))}

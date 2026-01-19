@@ -313,7 +313,7 @@ function SplashScreen() {
     <>
       <StatusBar hidden />
       <ImageBackground
-        source={require('./assets/splash.png')}
+        source={require('./assets/launchmodal.png')}
         style={styles.splashContainer}
         resizeMode="cover"
       />
