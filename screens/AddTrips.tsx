@@ -1763,6 +1763,7 @@ export default function AddTrips({ route, navigation }: any) {
                       }}
                       textColor="#1E293B"
                       accentColor="#0D4C4A"
+                      themeVariant="light"
                     />
                   </View>
                 </View>
