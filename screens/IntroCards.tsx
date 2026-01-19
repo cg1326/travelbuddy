@@ -16,20 +16,23 @@ import { CommonActions } from '@react-navigation/native';
 
 const { width, height } = Dimensions.get('window');
 
-// Using the "Clean" images (Xa) as base
+// INTRO CARD CONFIGURATION
 const SLIDES = [
     {
-        id: '0',
-        image: require('../assets/images/Intro Card 1a.png'), // Map 0 -> 1a (Intro Start) per request logic if possible, or just 1a as first
-        // Actually user said: "Intro Card 1a, 2a, 3a, 4a, 5a". 
-        // Slide 0 usually is layout. Let's assume indices match User's description 1-5.
-        // I will use 0-4 arrays.
-        slideIndex: 1
+        id: 'start',
+        image: require('../assets/images/Intro Card 0a.png'),
+        type: 'start'
     },
-    { id: '1', image: require('../assets/images/Intro Card 2a.png'), slideIndex: 2 },
-    { id: '2', image: require('../assets/images/Intro Card 3a.png'), slideIndex: 3 },
-    { id: '3', image: require('../assets/images/Intro Card 4a.png'), slideIndex: 4 },
-    { id: '4', image: require('../assets/images/Intro Card 5a.png'), slideIndex: 5, isLast: true },
+    { id: '0', image: require('../assets/images/Intro Card 1a.png'), type: 'step' },
+    { id: '1', image: require('../assets/images/Intro Card 2a.png'), type: 'step' },
+    { id: '2', image: require('../assets/images/Intro Card 3a.png'), type: 'step' },
+    { id: '3', image: require('../assets/images/Intro Card 4a.png'), type: 'step' },
+    {
+        id: '4',
+        image: require('../assets/images/Intro Card 5a.png'),
+        type: 'end',
+        isLast: true
+    },
 ];
 
 export default function IntroCards({ navigation, onFinish }: { navigation: any, onFinish: () => void }) {
@@ -49,8 +52,9 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
     };
 
     const handleCreatePlan = () => {
-        // Navigate to creating plan. 
-        // do NOT call onFinish() here yet, so stack history is preserved.
+        onFinish(); // Maybe simpler to mark as seen immediately if they dive in? 
+        // Or keep history. Let's keep history for now, but user reports navigation issues.
+        // Since App.tsx keeps IntroCards in stack now, we can just navigate.
         navigation.navigate('AddPlanName');
     };
 
@@ -62,20 +66,20 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
         let originCity = 'Los Angeles';
         let originCode = 'LAX';
 
+        // Basic city guessing logic
         if (userTz.includes('New_York')) { originCity = 'New York'; originCode = 'JFK'; }
         else if (userTz.includes('Chicago')) { originCity = 'Chicago'; originCode = 'ORD'; }
         else if (userTz.includes('London')) { originCity = 'London'; originCode = 'LHR'; }
         else if (userTz.includes('Paris')) { originCity = 'Paris'; originCode = 'CDG'; }
         else if (userTz.includes('Tokyo')) { originCity = 'Tokyo'; originCode = 'HND'; }
 
-        // SMART DESTINATION
+        // Smart Destination Logic
         let destCity = 'London';
-        let destCode = 'LHR';
-        if (originCity === 'London' || originCity === 'Paris') { destCity = 'Tokyo'; destCode = 'HND'; }
-        if (originCity === 'Tokyo') { destCity = 'Los Angeles'; destCode = 'LAX'; }
-        if (originCity === 'New York') { destCity = 'Paris'; destCode = 'CDG'; }
+        if (originCity === 'London' || originCity === 'Paris') { destCity = 'Tokyo'; }
+        if (originCity === 'Tokyo') { destCity = 'Los Angeles'; }
+        if (originCity === 'New York') { destCity = 'Paris'; }
 
-        // DATES
+        // Dates
         const departDate = moment().add(2, 'days').format('YYYY-MM-DD');
         const arriveDate = moment().add(3, 'days').format('YYYY-MM-DD');
 
@@ -89,15 +93,14 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
             arriveTime: '10:00',
             hasConnections: false,
             segments: [],
-            connections: [] // In a real app we'd fill this, but this is a stub
+            connections: []
         };
 
         await addPlan('Sample Trip', [sampleTrip]);
 
-        // NOW we finish intro, as they have entered the "Main" app flow
         onFinish();
 
-        // Reset to MainTabs with Today selected
+        // Reset Navigation
         navigation.dispatch(
             CommonActions.reset({
                 index: 0,
@@ -115,14 +118,22 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
             <View style={styles.slide}>
                 <Image source={item.image} style={styles.image} resizeMode="contain" />
 
-                {/* Overlay Content */}
-                {!item.isLast ? (
-                    // Slides 1-4 (Indices 0-3)
+                {/* === SLIDE 0: INTRO START === */}
+                {item.type === 'start' && (
                     <View style={styles.buttonContainer}>
-                        {/* "Next" or "Get Started" logic? User asked for 'Next' and 'Get Started'. 
-                 Usually 'Next' for intermediates, maybe 'Get Started' for 4?
-                 Let's stick to 'Next' for 1-4 for now unless specific instructions.
-              */}
+                        <TouchableOpacity
+                            style={styles.primaryButton} // Navy Blue for Start
+                            onPress={handleNext}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={styles.primaryButtonText}>Get Started</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {/* === SLIDES 1-4: STEPS === */}
+                {item.type === 'step' && (
+                    <View style={styles.buttonContainer}>
                         <TouchableOpacity
                             style={styles.primaryButton}
                             onPress={handleNext}
@@ -131,23 +142,31 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                             <Text style={styles.primaryButtonText}>Next</Text>
                         </TouchableOpacity>
                     </View>
-                ) : (
-                    // Last Slide (5)
+                )}
+
+                {/* === SLIDE 5: END === */}
+                {item.type === 'end' && (
                     <View style={styles.buttonContainerLast}>
-                        {/* Text Block */}
-                        <View style={styles.textBlock}>
-                            <Text style={styles.bodyText}>
-                                Don't have a trip yet? Try a sample plan to see how it works.
-                            </Text>
-                        </View>
+                        {/* 
+                User Request: 
+                1. + Create New Plan (Orange) 
+                2. Text "Don't have a trip..."
+                3. View Sample Plan
+             */}
 
                         <TouchableOpacity
-                            style={styles.primaryButton}
+                            style={[styles.primaryButton, styles.orangeButton]} // ORANGE OVERRIDE
                             onPress={handleCreatePlan}
                             activeOpacity={0.8}
                         >
                             <Text style={styles.primaryButtonText}>+ Create New Plan</Text>
                         </TouchableOpacity>
+
+                        <View style={styles.textBlock}>
+                            <Text style={styles.bodyText}>
+                                Don't have a trip yet? Try a sample plan to see how it works.
+                            </Text>
+                        </View>
 
                         <TouchableOpacity
                             style={styles.secondaryButton}
@@ -165,7 +184,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
         );
     };
 
-    // Pagination Logic to sync currentIndex
+    // Pagination Listener
     const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
         if (viewableItems.length > 0) {
             setCurrentIndex(viewableItems[0].index);
@@ -193,7 +212,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 })}
             />
 
-            {/* Pagination Dots */}
+            {/* Pagination Dots (Optional: Hide on Start/End? Mockups usually show dots for steps) */}
             <View style={styles.pagination}>
                 {SLIDES.map((_, index) => (
                     <View
@@ -212,7 +231,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#FFFFFF', // Clean white background for safe areas
+        backgroundColor: '#FFFFFF',
     },
     slide: {
         width: width,
@@ -224,12 +243,12 @@ const styles = StyleSheet.create({
     },
     image: {
         width: width,
-        height: '100%', // Fills height
+        height: '100%',
         position: 'absolute',
         top: 0,
     },
 
-    // Container for Slides 1-4 (Just button at bottom)
+    // Standard Container (Start + Steps)
     buttonContainer: {
         position: 'absolute',
         bottom: 80,
@@ -238,30 +257,31 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
 
-    // Container for Last Slide (Text + Two Buttons)
+    // End Slide Container (Higher to fit more items)
     buttonContainerLast: {
         position: 'absolute',
-        bottom: 60, // Slightly lower to fit more content
+        bottom: 60, // Checked against spacing
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
-        gap: 12, // Gap between elements
+        gap: 16, // Space between elements
     },
 
     textBlock: {
-        marginBottom: 8,
-        paddingHorizontal: 10,
+        marginBottom: 0,
+        marginTop: 0,
+        paddingHorizontal: 20,
     },
     bodyText: {
         fontFamily: 'Jua',
         fontSize: 16,
-        color: '#1F4259', // Dark Navy
+        color: '#1F4259',
         textAlign: 'center',
         lineHeight: 22,
     },
 
     primaryButton: {
-        backgroundColor: '#1F4259', // Dark Navy
+        backgroundColor: '#1F4259', // Default Navy
         borderRadius: 16,
         paddingVertical: 16,
         width: '100%',
@@ -271,6 +291,11 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
+    },
+    // ORANGE BUTTON style for "Create New Plan"
+    orangeButton: {
+        backgroundColor: '#FF9F1C', // "Vacation Orange" / Warm Amber
+        // Alternative: #F97316 (Orange-500)
     },
     primaryButtonText: {
         fontFamily: 'Jua',
@@ -298,8 +323,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         gap: 8,
-        // Hide pagination on last slide to avoid clutter? Or keep it. 
-        // Mockups often keep it.
     },
     dot: {
         width: 8,
