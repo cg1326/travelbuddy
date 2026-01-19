@@ -257,7 +257,7 @@ const styles = StyleSheet.create({
     // 1. Orange Button (Higher)
     orangeButtonContainer: {
         position: 'absolute',
-        bottom: 220, // Pushed up significantly to separate from the text group
+        bottom: 290, // Pushed up further to sit closer to "Let's get going"
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
     // 2. Sample Plan Group (Lower, aligned with standard button area)
     sampleContainer: {
         position: 'absolute',
-        bottom: 60, // Sits lower
+        bottom: 80, // Aligns with 'Next' button
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
