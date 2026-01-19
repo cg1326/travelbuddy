@@ -182,6 +182,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
     return (
         <View style={styles.container}>
             <StatusBar hidden />
+
             <FlatList
                 ref={flatListRef}
                 data={SLIDES}
@@ -200,7 +201,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 })}
             />
 
-            {/* Pagination Dots */}
+            {/* Pagination Dots (MOVED TO TOP) */}
             <View style={styles.pagination}>
                 {SLIDES.map((_, index) => (
                     <View
@@ -245,10 +246,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
 
-    // End Slide Container (Higher to fit more items)
+    // End Slide Container (MOVED UP)
     buttonContainerLast: {
         position: 'absolute',
-        bottom: 60,
+        bottom: 160, // <--- CHANGED from 60 to 160 to match mockup height
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
@@ -263,7 +264,7 @@ const styles = StyleSheet.create({
     bodyText: {
         fontFamily: 'Jua',
         fontSize: 16,
-        color: '#757575', // <--- UPDATED COLOR
+        color: '#757575',
         textAlign: 'center',
         lineHeight: 22,
     },
@@ -297,15 +298,14 @@ const styles = StyleSheet.create({
     // SMALLER GREY BUTTON
     greyButtonSmall: {
         backgroundColor: '#B7B5B5',
-        width: '85%', // Reduced Width
-        paddingVertical: 12, // Reduced Padding (Height)
-        // borderRadius: 12, // Optional: slightly smaller radius? Keep consist for family look though.
-        // Let's keep radius 16 for style match, just smaller dimensions.
+        width: '85%',
+        paddingVertical: 12,
     },
 
+    // PAGINATION MOVED TO TOP
     pagination: {
         position: 'absolute',
-        bottom: 40,
+        top: 60, // <--- CHANGED (Moved to top)
         flexDirection: 'row',
         width: '100%',
         justifyContent: 'center',
