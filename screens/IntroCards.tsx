@@ -21,17 +21,39 @@ const SLIDES = [
     {
         id: 'start',
         image: require('../assets/images/Intro Card 0a.png'),
-        type: 'start'
+        type: 'start',
+        useDarkDots: false // White dots
     },
-    { id: '0', image: require('../assets/images/Intro Card 1a.png'), type: 'step' },
-    { id: '1', image: require('../assets/images/Intro Card 2a.png'), type: 'step' },
-    { id: '2', image: require('../assets/images/Intro Card 3a.png'), type: 'step' },
-    { id: '3', image: require('../assets/images/Intro Card 4a.png'), type: 'step' },
+    {
+        id: '0',
+        image: require('../assets/images/Intro Card 1a.png'),
+        type: 'step',
+        useDarkDots: false // White dots
+    },
+    {
+        id: '1',
+        image: require('../assets/images/Intro Card 2a.png'),
+        type: 'step',
+        useDarkDots: true // "One way..." -> Grey dots
+    },
+    {
+        id: '2',
+        image: require('../assets/images/Intro Card 3a.png'),
+        type: 'step',
+        useDarkDots: true // "Your sleep..." -> Grey dots
+    },
+    {
+        id: '3',
+        image: require('../assets/images/Intro Card 4a.png'),
+        type: 'step',
+        useDarkDots: false // White dots
+    },
     {
         id: '4',
         image: require('../assets/images/Intro Card 5a.png'),
         type: 'end',
-        isLast: true
+        isLast: true,
+        useDarkDots: true // "Let's get going" -> Grey dots
     },
 ];
 
@@ -185,6 +207,11 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
         }
     }).current;
 
+    // Pagination Logic Helper
+    const currentSlide = SLIDES[currentIndex] || SLIDES[0];
+    const activeDotColor = '#1F4259';
+    const inactiveDotColor = currentSlide.useDarkDots ? '#CBD5E1' : '#FFFFFF';
+
     return (
         <View style={styles.container}>
             <StatusBar hidden />
@@ -207,14 +234,18 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 })}
             />
 
-            {/* Pagination Dots (MOVED DOWN) */}
+            {/* Pagination Dots (MOVED FURTHER DOWN) */}
             <View style={styles.pagination}>
                 {SLIDES.map((_, index) => (
                     <View
                         key={index}
                         style={[
                             styles.dot,
-                            currentIndex === index ? styles.activeDot : styles.inactiveDot,
+                            {
+                                backgroundColor: currentIndex === index
+                                    ? activeDotColor
+                                    : inactiveDotColor
+                            },
                         ]}
                     />
                 ))}
