@@ -11,6 +11,8 @@ import ReviewPlan from './screens/ReviewPlan';
 import TodayView from './screens/TodayView';
 import ProfileSettings from './screens/ProfileSettings';
 import TripDetail from './screens/TripDetails';
+import IntroCards from './screens/IntroCards'; // <--- NEW IMPORT
+import AsyncStorage from '@react-native-async-storage/async-storage'; // <--- NEW IMPORT
 import moment from 'moment';
 import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
 import Icon from 'react-native-vector-icons/Feather';
@@ -325,7 +327,32 @@ function MainApp() {
   const { isLoading } = usePlans();
   const [isSplashMinTimeElapsed, setSplashMinTimeElapsed] = React.useState(false);
   const [isSplashMaxTimeElapsed, setSplashMaxTimeElapsed] = React.useState(false);
+  const [hasSeenIntro, setHasSeenIntro] = React.useState<boolean | null>(null); // <--- NEW STATE
   const navigationRef = useRef<any>(null);
+
+  // <--- NEW: CHECK INTRO STATUS
+  useEffect(() => {
+    checkIntroStatus();
+  }, []);
+
+  const checkIntroStatus = async () => {
+    try {
+      const value = await AsyncStorage.getItem('@travelbuddy_has_seen_intro');
+      setHasSeenIntro(value === 'true');
+    } catch (e) {
+      console.error('Error checking intro status', e);
+      setHasSeenIntro(false);
+    }
+  };
+
+  const handleFinishIntro = async () => {
+    try {
+      await AsyncStorage.setItem('@travelbuddy_has_seen_intro', 'true');
+      setHasSeenIntro(true);
+    } catch (e) {
+      console.error('Error saving intro status', e);
+    }
+  };
 
   useEffect(() => {
     const minTimer = setTimeout(() => {
@@ -373,7 +400,8 @@ function MainApp() {
   // This ensures at least 2s of splash, and at most 3s of splash (even if slow data)
   const showSplash = !isSplashMinTimeElapsed || (isLoading && !isSplashMaxTimeElapsed);
 
-  if (showSplash) {
+
+  if (showSplash || hasSeenIntro === null) {
     return <SplashScreen />;
   }
 
@@ -381,7 +409,15 @@ function MainApp() {
     <>
       <NotificationUpdater />
       <NavigationContainer ref={navigationRef}>
-        <Stack.Navigator>
+        <Stack.Navigator initialRouteName={!hasSeenIntro ? "IntroCards" : "MainTabs"}>
+          {!hasSeenIntro && (
+            <Stack.Screen
+              name="IntroCards"
+              options={{ headerShown: false }}
+            >
+              {(props) => <IntroCards {...props} onFinish={handleFinishIntro} />}
+            </Stack.Screen>
+          )}
           <Stack.Screen
             name="MainTabs"
             component={MainTabs}
