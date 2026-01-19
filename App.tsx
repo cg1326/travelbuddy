@@ -76,7 +76,11 @@ function PlansScreen({ navigation }: any) {
     <View style={styles.screen}>
       <Text style={styles.plansTitle}>Your Plans</Text>
 
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={plans.length === 0 ? { flexGrow: 1, justifyContent: 'center' } : {}}
+        showsVerticalScrollIndicator={false}
+      >
         {plans.length === 0 ? (
           <Text style={styles.emptyText}>No plans yet. Create your first one!</Text>
         ) : (
