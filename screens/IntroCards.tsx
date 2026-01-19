@@ -52,9 +52,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
     };
 
     const handleCreatePlan = () => {
-        onFinish(); // Maybe simpler to mark as seen immediately if they dive in? 
-        // Or keep history. Let's keep history for now, but user reports navigation issues.
-        // Since App.tsx keeps IntroCards in stack now, we can just navigate.
+        // Navigate to creating plan.
         navigation.navigate('AddPlanName');
     };
 
@@ -64,20 +62,19 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
         // SMART ORIGIN LOGIC
         const userTz = moment.tz.guess();
         let originCity = 'Los Angeles';
-        let originCode = 'LAX';
 
         // Basic city guessing logic
-        if (userTz.includes('New_York')) { originCity = 'New York'; originCode = 'JFK'; }
-        else if (userTz.includes('Chicago')) { originCity = 'Chicago'; originCode = 'ORD'; }
-        else if (userTz.includes('London')) { originCity = 'London'; originCode = 'LHR'; }
-        else if (userTz.includes('Paris')) { originCity = 'Paris'; originCode = 'CDG'; }
-        else if (userTz.includes('Tokyo')) { originCity = 'Tokyo'; originCode = 'HND'; }
+        if (userTz.includes('New_York')) originCity = 'New York';
+        else if (userTz.includes('Chicago')) originCity = 'Chicago';
+        else if (userTz.includes('London')) originCity = 'London';
+        else if (userTz.includes('Paris')) originCity = 'Paris';
+        else if (userTz.includes('Tokyo')) originCity = 'Tokyo';
 
         // Smart Destination Logic
         let destCity = 'London';
-        if (originCity === 'London' || originCity === 'Paris') { destCity = 'Tokyo'; }
-        if (originCity === 'Tokyo') { destCity = 'Los Angeles'; }
-        if (originCity === 'New York') { destCity = 'Paris'; }
+        if (originCity === 'London' || originCity === 'Paris') destCity = 'Tokyo';
+        if (originCity === 'Tokyo') destCity = 'Los Angeles';
+        if (originCity === 'New York') destCity = 'Paris';
 
         // Dates
         const departDate = moment().add(2, 'days').format('YYYY-MM-DD');
@@ -122,7 +119,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 {item.type === 'start' && (
                     <View style={styles.buttonContainer}>
                         <TouchableOpacity
-                            style={styles.primaryButton} // Navy Blue for Start
+                            style={[styles.primaryButton, styles.blueButton]} // BLUE #3C82F6
                             onPress={handleNext}
                             activeOpacity={0.8}
                         >
@@ -135,7 +132,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 {item.type === 'step' && (
                     <View style={styles.buttonContainer}>
                         <TouchableOpacity
-                            style={styles.primaryButton}
+                            style={styles.primaryButton} // Default Navy
                             onPress={handleNext}
                             activeOpacity={0.8}
                         >
@@ -147,15 +144,8 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 {/* === SLIDE 5: END === */}
                 {item.type === 'end' && (
                     <View style={styles.buttonContainerLast}>
-                        {/* 
-                User Request: 
-                1. + Create New Plan (Orange) 
-                2. Text "Don't have a trip..."
-                3. View Sample Plan
-             */}
-
                         <TouchableOpacity
-                            style={[styles.primaryButton, styles.orangeButton]} // ORANGE OVERRIDE
+                            style={[styles.primaryButton, styles.orangeButton]} // ORANGE #FF8000
                             onPress={handleCreatePlan}
                             activeOpacity={0.8}
                         >
@@ -174,7 +164,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                             disabled={isCreatingSample}
                             activeOpacity={0.6}
                         >
-                            <Text style={styles.secondaryButtonText}>
+                            <Text style={[styles.secondaryButtonText, { color: '#B7B5B5' }]}>
                                 {isCreatingSample ? 'Creating...' : 'View Sample Plan'}
                             </Text>
                         </TouchableOpacity>
@@ -212,7 +202,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 })}
             />
 
-            {/* Pagination Dots (Optional: Hide on Start/End? Mockups usually show dots for steps) */}
+            {/* Pagination Dots */}
             <View style={styles.pagination}>
                 {SLIDES.map((_, index) => (
                     <View
@@ -260,11 +250,11 @@ const styles = StyleSheet.create({
     // End Slide Container (Higher to fit more items)
     buttonContainerLast: {
         position: 'absolute',
-        bottom: 60, // Checked against spacing
+        bottom: 60,
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
-        gap: 16, // Space between elements
+        gap: 16,
     },
 
     textBlock: {
@@ -281,7 +271,7 @@ const styles = StyleSheet.create({
     },
 
     primaryButton: {
-        backgroundColor: '#1F4259', // Default Navy
+        backgroundColor: '#1F4259', // Default Navy for "Next"
         borderRadius: 16,
         paddingVertical: 16,
         width: '100%',
@@ -292,16 +282,20 @@ const styles = StyleSheet.create({
         shadowRadius: 4,
         elevation: 3,
     },
-    // ORANGE BUTTON style for "Create New Plan"
-    orangeButton: {
-        backgroundColor: '#FF9F1C', // "Vacation Orange" / Warm Amber
-        // Alternative: #F97316 (Orange-500)
-    },
     primaryButtonText: {
         fontFamily: 'Jua',
         color: '#FFFFFF',
         fontSize: 18,
     },
+
+    // COLOR OVERRIDES
+    blueButton: {
+        backgroundColor: '#3C82F6',
+    },
+    orangeButton: {
+        backgroundColor: '#FF8000',
+    },
+
     secondaryButton: {
         backgroundColor: 'transparent',
         paddingVertical: 12,
@@ -310,7 +304,7 @@ const styles = StyleSheet.create({
     },
     secondaryButtonText: {
         fontFamily: 'Jua',
-        color: '#1F4259',
+        color: '#B7B5B5', // Grey override handled inline or here
         fontSize: 16,
         textDecorationLine: 'underline',
     },
