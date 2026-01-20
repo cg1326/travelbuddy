@@ -637,7 +637,7 @@ export function generateJetLagPlan(
     userSettings
   );
 
-  const adjustmentDuration = Math.max(1, Math.ceil(hoursDiff / 1.5));
+  const adjustmentDuration = 2; // FIXED: Limit to Arrival + 1 Day as requested by user
 
   const adjustCards = generateAdjustCards(
     trip,
@@ -1328,6 +1328,10 @@ function generateAdjustCards(
   const landingHour = landingMoment.hour();
   const landingTime = landingMoment.format('h:mm A');
 
+  // TRIGGER: Late Night Arrival Logic (< 4 AM)
+  // If true, we treat the rest of the arrival day as "Day 1" of the Daily Routine.
+  const isLateNightArrival = landingHour < 4;
+
   // ============================================
   // ARRIVAL DAY CARDS (conditional based on landing time)
   // ============================================
@@ -1344,10 +1348,13 @@ function generateAdjustCards(
   });
 
   // If land between 4 AM and 10 AM - get morning sunlight immediately
+  // If land between 4 AM and 10 AM - get morning sunlight immediately
+  // NOTE: For late night arrivals (< 4 AM), we SKIP this card.
+  // The Daily Routine "Seek Sunlight" card will cover the morning of this arrival day.
   if (landingHour >= 4 && landingHour < 10) {
     cards.push({
       id: 'adjust-arrival-morning-light',
-      title: 'Seek Morning Sunlight Now',
+      title: 'Seek Morning Sunlight Now', // Changed title to distinguish from daily routine
       time: `${landingTime} - 10:00 AM`,
       icon: '☀️',
       color: '#FFF7C5',
@@ -1387,18 +1394,21 @@ function generateAdjustCards(
     });
   }
 
-  // No caffeine after 2 PM (always show for arrival day)
-  const noCaffeineTime = landingMoment.clone().hour(14).minute(0).second(0);
-  cards.push({
-    id: 'adjust-arrival-no-caffeine',
-    title: 'Limit Caffeine After 2 PM',
-    time: 'After 2:00 PM',
-    icon: '🚫',
-    color: '#F3F0ED',
-    why: 'Your first night of sleep in the new timezone is critical. Try to avoid caffeine in the afternoon.',
-    how: 'Switch to water, herbal tea, or juice after 2 PM.',
-    dateTime: noCaffeineTime.toISOString(),
-  });
+  // No caffeine after 2 PM (Always show, UNLESS it's a Late Night Arrival)
+  // For Late Night Arrivals, the Daily Routine "Limit Caffeine" card will cover this day.
+  if (!isLateNightArrival) {
+    const noCaffeineTime = landingMoment.clone().hour(14).minute(0).second(0);
+    cards.push({
+      id: 'adjust-arrival-no-caffeine',
+      title: 'Limit Caffeine After 2 PM',
+      time: 'After 2:00 PM',
+      icon: '🚫',
+      color: '#F3F0ED',
+      why: 'Your first night of sleep in the new timezone is critical. Try to avoid caffeine in the afternoon.',
+      how: 'Switch to water, herbal tea, or juice after 2 PM.',
+      dateTime: noCaffeineTime.toISOString(),
+    });
+  }
 
   const arrivalDate = landingMoment.format('YYYY-MM-DD');
 
@@ -1473,7 +1483,9 @@ function generateAdjustCards(
   // VISUAL SEPARATOR - Place at end of arrival day (11:59 PM)
   // ============================================
 
-  const separatorTime = landingMoment.clone().endOf('day');
+  const separatorTime = isLateNightArrival
+    ? landingMoment.clone().add(2, 'hours') // Place shortly after landing/bedtime
+    : landingMoment.clone().endOf('day');   // Normal placement at end of day
 
   cards.push({
     id: 'adjust-separator',
@@ -1491,9 +1503,12 @@ function generateAdjustCards(
   // RECURRING DAILY CARDS (for all following days)
   // ============================================
 
-  // Calculate wake time for next day
+  // Calculate wake time for next day (OR same day if late night arrival)
   const [wakeHour, wakeMinute] = userSettings.normalWakeTime.split(':').map(Number);
-  const nextDayMorning = landingMoment.clone().add(1, 'day').startOf('day').hour(wakeHour).minute(wakeMinute);
+  const nextDayMorning = isLateNightArrival
+    ? landingMoment.clone().startOf('day').hour(wakeHour).minute(wakeMinute)
+    : landingMoment.clone().add(1, 'day').startOf('day').hour(wakeHour).minute(wakeMinute);
+
   const nextDayStr = nextDayMorning.format('YYYY-MM-DD');
 
   // Calculate light window (3 hours from wake)
@@ -1568,7 +1583,7 @@ function generateAdjustCards(
       color: '#92400e',
       why: 'Strategic caffeine helps you stay alert during local daytime. Essential for adjustment.',
       how: 'Coffee or tea during these hours. Helps fight off sleepiness and stay on local schedule.',
-      dateTime: moment.tz(`${nextDayStr} ${userSettings.normalWakeTime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+      dateTime: nextDayMorning.clone().toISOString(),
       isDailyRoutine: true,
     });
   }
@@ -1590,7 +1605,9 @@ function generateAdjustCards(
     color: '#64748b',
     why: 'Caffeine stays in your system 6+ hours. Prioritizing sleep tonight will help you adjust faster.',
     how: 'Switch to water, herbal tea, or decaf. Resist the temptation for afternoon coffee.',
-    dateTime: moment.tz(`${nextDayStr} ${noCaffeineTimeForSort}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+    dateTime: wakeMinutes >= effectiveCutoffMinutes
+      ? nextDayMorning.clone().toISOString() // same as wake time
+      : nextDayMorning.clone().hour(caffeineCutoffMoment.hour()).minute(caffeineCutoffMoment.minute()).toISOString(),
     isDailyRoutine: true,
   });
 
@@ -1603,7 +1620,7 @@ function generateAdjustCards(
       color: '#ef4444',
       why: 'Eastward travel often makes you drowsy in afternoon. Long naps can make it harder to sleep at night.',
       how: 'If tired, try to limit naps to 20 minutes max. Set an alarm. Better: take a walk outside.',
-      dateTime: moment.tz(`${nextDayStr} 12:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+      dateTime: nextDayMorning.clone().hour(12).minute(0).toISOString(),
       isDailyRoutine: true,
     });
   } else {
@@ -1615,7 +1632,7 @@ function generateAdjustCards(
       color: '#8b5cf6',
       why: 'Westward travel is easier. A brief nap won\'t hurt your adjustment.',
       how: 'If tired, a 20-30 minute nap is fine. Set an alarm. Don\'t nap after 3 PM.',
-      dateTime: moment.tz(`${nextDayStr} 13:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+      dateTime: nextDayMorning.clone().hour(13).minute(0).toISOString(),
       isDailyRoutine: true,
     });
   }
@@ -1631,7 +1648,7 @@ function generateAdjustCards(
       }`,
     how: `Try to go to bed around ${formatTime12Hour(localBedtime)} local time. Keep room dark and cool. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
       }`,
-    dateTime: moment.tz(`${nextDayStr} ${localBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+    dateTime: nextDayMorning.clone().hour(Number(localBedtime.split(':')[0])).minute(Number(localBedtime.split(':')[1])).toISOString(),
     isDailyRoutine: true,
   });
 
@@ -1645,7 +1662,7 @@ function generateAdjustCards(
       color: '#8b5cf6',
       why: 'Some travelers choose to use melatonin to signal to the body that it\'s time to sleep.',
       how: 'If this is something you already use, you may choose to take a small amount 30 minutes before bed. Follow package instructions.',
-      dateTime: moment.tz(`${nextDayStr} ${melatoninTime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+      dateTime: nextDayMorning.clone().subtract(30, 'minutes').hour(Number(melatoninTime.split(':')[0])).minute(Number(melatoninTime.split(':')[1])).toISOString(),
       isDailyRoutine: true,
     });
   }
@@ -1659,7 +1676,7 @@ function generateAdjustCards(
       color: '#10b981',
       why: 'Some travelers find magnesium helpful for relaxation.',
       how: 'If you choose to use it, many people take magnesium glycinate with dinner.',
-      dateTime: moment.tz(`${nextDayStr} 19:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+      dateTime: nextDayMorning.clone().hour(19).minute(0).toISOString(),
       isDailyRoutine: true,
     });
   }
