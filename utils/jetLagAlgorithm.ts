@@ -792,6 +792,23 @@ export function generateJetLagPlan(
   };
 }
 
+/**
+ * Calculate progressive sleep shift based on timezone difference
+ * @param hoursDiff - Timezone difference in hours
+ * @param prepDays - Number of preparation days
+ * @returns Sleep shift per day in hours (capped at 2 hours total)
+ */
+function calculatePrepSleepShift(hoursDiff: number, prepDays: number): number {
+  // Max recommended pre-adjustment: 2 hours total
+  // Research shows more than 2 hours disrupts current life too much
+  const maxTotalShift = Math.min(hoursDiff, 2);
+
+  // Distribute across available prep days
+  const shiftPerDay = maxTotalShift / prepDays;
+
+  return shiftPerDay;
+}
+
 function generatePrepareCards(
   trip: Trip,
   direction: 'east' | 'west',
@@ -898,21 +915,42 @@ function generatePrepareCards(
       dateTime: moment.tz(`${startDate} ${wakeTimeStr}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
     });
 
-    // Calculate 30 minutes earlier than normal bedtime
-    const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
-    const earlierBedtime = normalBedtimeMoment.subtract(30, 'minutes').format('HH:mm');
+    // Calculate progressive sleep shift
+    const shiftPerDay = calculatePrepSleepShift(hoursDiff, effectivePrepDays);
 
+    // Generate sleep cards for each prep day with progressive shifts
     if (effectivePrepDays > 0) {
-      cards.push({
-        id: 'prep-sleep',
-        title: 'Sleep Earlier',
-        time: formatTime12Hour(earlierBedtime),
-        icon: '🌙',
-        color: '#1C5D74',
-        why: `Consider shifting your sleep 30 minutes earlier than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime for ${effectivePrepDays} day${effectivePrepDays > 1 ? 's' : ''} before departure.`,
-        how: 'Try to go to bed 30-60 minutes earlier than usual. Dim lights after 8 PM. Limit screen time before bed.',
-        dateTime: moment.tz(`${startDate} ${earlierBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
-      });
+      for (let dayOffset = 0; dayOffset < effectivePrepDays; dayOffset++) {
+        const cumulativeShift = shiftPerDay * (dayOffset + 1);
+        const currentDate = moment(startDate).subtract(effectivePrepDays - dayOffset - 1, 'days').format('YYYY-MM-DD');
+
+        // Calculate shifted bedtime for this specific day
+        const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
+        const shiftedBedtime = normalBedtimeMoment.clone().subtract(cumulativeShift * 60, 'minutes').format('HH:mm');
+
+        // Format shift amount for display
+        const shiftHours = Math.floor(cumulativeShift);
+        const shiftMinutes = Math.round((cumulativeShift - shiftHours) * 60);
+        const shiftText = shiftHours > 0
+          ? (shiftMinutes > 0 ? `${shiftHours}h ${shiftMinutes}m` : `${shiftHours} hour${shiftHours > 1 ? 's' : ''}`)
+          : `${shiftMinutes} minutes`;
+
+        const dayLabel = effectivePrepDays > 1 ? ` - Day ${dayOffset + 1}` : '';
+        const progressText = effectivePrepDays > 1 && dayOffset < effectivePrepDays - 1
+          ? ` Tomorrow you'll shift another ${Math.round(shiftPerDay * 60)} minutes.`
+          : '';
+
+        cards.push({
+          id: `prep-sleep-day${dayOffset + 1}`,
+          title: `Sleep Earlier${dayLabel}`,
+          time: formatTime12Hour(shiftedBedtime),
+          icon: '🌙',
+          color: '#1C5D74',
+          why: `Start shifting your sleep ${shiftText} earlier than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime.${progressText}`,
+          how: 'Try to go to bed earlier than usual. Dim lights after 8 PM. Limit screen time before bed.',
+          dateTime: moment.tz(`${currentDate} ${shiftedBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+        });
+      }
     }
 
     cards.push({
@@ -941,21 +979,42 @@ function generatePrepareCards(
       dateTime: moment.tz(`${startDate} 18:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
     });
 
-    // Calculate 30 minutes later than normal bedtime
-    const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
-    const laterBedtime = normalBedtimeMoment.add(30, 'minutes').format('HH:mm');
+    // Calculate progressive sleep shift
+    const shiftPerDay = calculatePrepSleepShift(hoursDiff, effectivePrepDays);
 
+    // Generate sleep cards for each prep day with progressive shifts
     if (effectivePrepDays > 0) {
-      cards.push({
-        id: 'prep-sleep',
-        title: 'Sleep Later',
-        time: formatTime12Hour(laterBedtime),
-        icon: '🌙',
-        color: '#1C5D74',
-        why: `Consider shifting your sleep 30 minutes later than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime for ${effectivePrepDays} day${effectivePrepDays > 1 ? 's' : ''} before departure.`,
-        how: 'Try to stay up 30-60 minutes later than usual. Keep lights bright in the evening.',
-        dateTime: moment.tz(`${startDate} ${laterBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
-      });
+      for (let dayOffset = 0; dayOffset < effectivePrepDays; dayOffset++) {
+        const cumulativeShift = shiftPerDay * (dayOffset + 1);
+        const currentDate = moment(startDate).subtract(effectivePrepDays - dayOffset - 1, 'days').format('YYYY-MM-DD');
+
+        // Calculate shifted bedtime for this specific day
+        const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
+        const shiftedBedtime = normalBedtimeMoment.clone().add(cumulativeShift * 60, 'minutes').format('HH:mm');
+
+        // Format shift amount for display
+        const shiftHours = Math.floor(cumulativeShift);
+        const shiftMinutes = Math.round((cumulativeShift - shiftHours) * 60);
+        const shiftText = shiftHours > 0
+          ? (shiftMinutes > 0 ? `${shiftHours}h ${shiftMinutes}m` : `${shiftHours} hour${shiftHours > 1 ? 's' : ''}`)
+          : `${shiftMinutes} minutes`;
+
+        const dayLabel = effectivePrepDays > 1 ? ` - Day ${dayOffset + 1}` : '';
+        const progressText = effectivePrepDays > 1 && dayOffset < effectivePrepDays - 1
+          ? ` Tomorrow you'll shift another ${Math.round(shiftPerDay * 60)} minutes.`
+          : '';
+
+        cards.push({
+          id: `prep-sleep-day${dayOffset + 1}`,
+          title: `Sleep Later${dayLabel}`,
+          time: formatTime12Hour(shiftedBedtime),
+          icon: '🌙',
+          color: '#1C5D74',
+          why: `Start shifting your sleep ${shiftText} later than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime.${progressText}`,
+          how: 'Try to stay up later than usual. Keep lights bright in the evening.',
+          dateTime: moment.tz(`${currentDate} ${shiftedBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+        });
+      }
     }
   }
 
