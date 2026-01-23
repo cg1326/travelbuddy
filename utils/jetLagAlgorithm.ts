@@ -922,7 +922,7 @@ function generatePrepareCards(
     if (effectivePrepDays > 0) {
       for (let dayOffset = 0; dayOffset < effectivePrepDays; dayOffset++) {
         const cumulativeShift = shiftPerDay * (dayOffset + 1);
-        const currentDate = moment(startDate).subtract(effectivePrepDays - dayOffset - 1, 'days').format('YYYY-MM-DD');
+        const currentDate = moment(startDate).add(dayOffset, 'days').format('YYYY-MM-DD');
 
         // Calculate shifted bedtime for this specific day
         const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
@@ -986,7 +986,7 @@ function generatePrepareCards(
     if (effectivePrepDays > 0) {
       for (let dayOffset = 0; dayOffset < effectivePrepDays; dayOffset++) {
         const cumulativeShift = shiftPerDay * (dayOffset + 1);
-        const currentDate = moment(startDate).subtract(effectivePrepDays - dayOffset - 1, 'days').format('YYYY-MM-DD');
+        const currentDate = moment(startDate).add(dayOffset, 'days').format('YYYY-MM-DD');
 
         // Calculate shifted bedtime for this specific day
         const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
