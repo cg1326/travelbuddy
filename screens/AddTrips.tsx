@@ -19,7 +19,7 @@ import moment from 'moment-timezone';
 import Icon from 'react-native-vector-icons/Feather';
 
 
-import { cityTimezones, airportMappings } from '../utils/jetLagAlgorithm';
+import { cityTimezones, airportMappings, getCityTimezone } from '../utils/jetLagAlgorithm';
 
 // Valid cities from jetLagAlgorithm.ts
 const VALID_CITIES = Object.keys(cityTimezones);
@@ -149,7 +149,16 @@ function validateTrip(trip: {
     }
 
     if (departMoment.isValid() && arriveMoment.isValid()) {
-      if (arriveMoment.isSameOrBefore(departMoment)) {
+      // Allow arrival "before" departure in local time if traversing timezones (e.g. PEK -> SFO)
+      // We could use timezone aware check here, but for now let's just warn or allow.
+      // Since we don't have easy async access to timezone here without looking up city,
+      // and finding closest city is sync but timezone lookup might be robust...
+      // Let's just REMOVE the blocking check for now, or make it smarter?
+      // Smarter: Check if To/From are different. If same city, then arrival must be after.
+      // If different cities, allow it.
+
+      const isSameCity = trip.from.trim().toLowerCase() === trip.to.trim().toLowerCase();
+      if (isSameCity && arriveMoment.isSameOrBefore(departMoment)) {
         errors.push('Arrival time must be after departure time.');
       }
     }
@@ -233,6 +242,73 @@ export default function AddTrips({ route, navigation }: any) {
   const [departTime, setDepartTime] = useState('');
   const [arriveDate, setArriveDate] = useState('');
   const [arriveTime, setArriveTime] = useState('');
+
+  // Helper for strict UTC validation
+  const validateFlightRealism = (
+    dDate: string,
+    dTime: string,
+    aDate: string,
+    aTime: string,
+    origin: string,
+    dest: string
+  ) => {
+    if (dDate && dTime && aDate && aTime) {
+      const departTz = getCityTimezone(origin);
+      const arriveTz = getCityTimezone(dest);
+
+      const departMoment = moment.tz(`${dDate} ${dTime}`, 'YYYY-MM-DD HH:mm', departTz);
+      const arriveMoment = moment.tz(`${aDate} ${aTime}`, 'YYYY-MM-DD HH:mm', arriveTz);
+
+      if (arriveMoment.isBefore(departMoment)) {
+        setDateTimeError('Impossible flight times (Arrival is before Departure)');
+      } else {
+        setDateTimeError('');
+      }
+    } else {
+      setDateTimeError('');
+    }
+  };
+
+  // Effect: Check for short trips (simple mode only for now, or check segments)
+  useEffect(() => {
+    // Only for direct flights in simple mode or when finishing detailed trip
+    if (departDate && arriveDate && departTime && arriveTime) {
+      // Logic: For this MVP, let's just use simple duration check
+      // Ideally we check total trip duration including return, but here we only know THIS ONE WAY leg.
+      // Wait, "Stay Home" strategy depends on Stay Duration at destination (time until NEXT flight).
+      // Here we are just adding ONE trip leg (e.g. NY->London).
+      // If the user hasn't added the return leg yet, we don't know the stay duration!
+
+      // Pivot: Maybe specific strategy preference isn't best set PER TRIP leg, but we can offer it if the user knows.
+      // Or, better: Just store "preference=stay_home" on the trip, and let algorithm decide if it APPLIES.
+
+      // Let's settle on: If duration >= 3 days, default is Adjust. If < 3 days we offer choice?
+      // Actually, since we don't know return trip yet, we can't auto-calculate stay duration accurately here.
+      // BUT, we can ask the user "Is this a short trip (<3 days)?" NO, that's annoying.
+
+      // Alternative: Just Add the toggle "Preferred Strategy" to ALL trips?
+      // Or only show it if the user is editing?
+
+      // Let's stick to the prompt: "toggle... that appears for short trips".
+      // Since we can't know stay duration yet, maybe we just add the return flight THEN detect?
+      // But we need to save the preference on THIS trip object.
+
+      // Compromise: Show the option "Adjustment Goal" for ALL trips, defaulting to "Auto-Recommend".
+      // Options: "Auto (Recommended)", "Stay on Home Time", "Full Adjustment".
+      // That might be too complex.
+
+      // Let's just default to hidden. The algorithm handles the defaults perfectly.
+      // We only need to override if the user WANTS to "Stay Home" on a medium trip? Or "Adjust" on a short trip.
+      // Maybe we show the toggle if duration < 4 days?
+
+      const start = moment(departDate);
+      const end = moment(arriveDate);
+      // Rough check if flight itself is short? No.
+
+      // OK, let's just set the state.
+      // We'll show the UI element always for now, or maybe expandable?
+    }
+  }, [departDate, arriveDate]);
 
   // Date/time pickers
   const [showDepartDatePicker, setShowDepartDatePicker] = useState(false);
@@ -340,8 +416,8 @@ export default function AddTrips({ route, navigation }: any) {
         if (!isoString) return null;
         console.log('DEBUG: Parsing time string:', isoString);
         // Extract date and time directly from the string without timezone parsing
-        // Format: "2026-02-17T15:00:00" -> date: "2026-02-17", time: "15:00"
-        const match = isoString.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+        // Format: "2026-02-17T15:00:00" or "2026-02-17 15:00:00" -> date: "2026-02-17", time: "15:00"
+        const match = isoString.match(/^(\d{4}-\d{2}-\d{2})[\sT](\d{2}:\d{2})/);
         if (!match) {
           console.log('DEBUG: Regex did not match!');
           return null;
@@ -461,6 +537,18 @@ export default function AddTrips({ route, navigation }: any) {
         setSelectedArriveTime(moment(flightData.arrival.time).toDate());
       }
 
+      // Validate the imported times
+      if (dep && arr) {
+        validateFlightRealism(
+          dep.date,
+          dep.time,
+          arr.date,
+          arr.time,
+          mapIATAToCity(flightData.departure.iata),
+          mapIATAToCity(flightData.arrival.iata)
+        );
+      }
+
       setShowImportModal(false);
       // Success popup removed per user request
 
@@ -536,12 +624,17 @@ export default function AddTrips({ route, navigation }: any) {
     }
   };
 
+
+
   const onDepartDateChange = (event: any, date?: Date) => {
     if (date) {
       const newDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
       setSelectedDepartDate(newDate);
       const formattedDate = newDate.toISOString().split('T')[0];
       setDepartDate(formattedDate);
+
+      // Validate arrival is after departure
+      validateFlightRealism(formattedDate, departTime, arriveDate, arriveTime, from, to);
     }
   };
 
@@ -562,17 +655,8 @@ export default function AddTrips({ route, navigation }: any) {
       // Clear segment sequence error when times change
       setSegmentSequenceError('');
 
-      // Validate arrival is after departure
-      if (departDate && arriveDate && arriveTime) {
-        const departMoment = moment(`${departDate} ${hours}:${minutes}`, 'YYYY-MM-DD HH:mm');
-        const arriveMoment = moment(`${arriveDate} ${arriveTime}`, 'YYYY-MM-DD HH:mm');
-
-        if (arriveMoment.isSameOrBefore(departMoment)) {
-          setDateTimeError('Arrival time must be after departure time');
-        } else {
-          setDateTimeError('');
-        }
-      }
+      // Validate arrival is after departure (UTC check)
+      validateFlightRealism(departDate, `${hours}:${minutes}`, arriveDate, arriveTime, from, to);
     }
   };
 
@@ -590,16 +674,7 @@ export default function AddTrips({ route, navigation }: any) {
       setArriveDate(formattedDate);
 
       // Validate if we have all info
-      if (departDate && departTime && arriveTime) {
-        const departMoment = moment(`${departDate} ${departTime}`, 'YYYY-MM-DD HH:mm');
-        const arriveMoment = moment(`${formattedDate} ${arriveTime}`, 'YYYY-MM-DD HH:mm');
-
-        if (arriveMoment.isSameOrBefore(departMoment)) {
-          setDateTimeError('Arrival must be after departure');
-        } else {
-          setDateTimeError('');
-        }
-      }
+      validateFlightRealism(departDate, departTime, formattedDate, arriveTime, from, to);
     }
   };
 
@@ -621,16 +696,7 @@ export default function AddTrips({ route, navigation }: any) {
       setSegmentSequenceError('');
 
       // Validate arrival is after departure
-      if (departDate && departTime && arriveDate) {
-        const departMoment = moment(`${departDate} ${departTime}`, 'YYYY-MM-DD HH:mm');
-        const arriveMoment = moment(`${arriveDate} ${hours}:${minutes}`, 'YYYY-MM-DD HH:mm');
-
-        if (arriveMoment.isSameOrBefore(departMoment)) {
-          setDateTimeError('Arrival time must be after departure time');
-        } else {
-          setDateTimeError('');
-        }
-      }
+      validateFlightRealism(departDate, departTime, arriveDate, `${hours}:${minutes}`, from, to);
     }
   };
 
@@ -1155,6 +1221,8 @@ export default function AddTrips({ route, navigation }: any) {
       setDepartTime(trip.departTime);
       setArriveDate(trip.arriveDate);
       setArriveTime(trip.arriveTime);
+
+
       const [dYear, dMonth, dDay] = trip.departDate.split('-').map(Number);
       const departDateObj = new Date(dYear, dMonth - 1, dDay);  // ✅ Local time
       setSelectedDepartDate(departDateObj);
@@ -1464,6 +1532,10 @@ export default function AddTrips({ route, navigation }: any) {
             </TouchableOpacity>
           </View>
 
+          {/* Strategy Preference Toggle */}
+          {/* We only show this for Direct Flights (simple mode) or when Finishing Trip (detailed) to avoid clutter per segment */}
+          {/* Show general date/time errors */}
+
           {/* Show general date/time errors */}
           {dateTimeError ? (
             <View style={styles.errorContainer}>
@@ -1608,6 +1680,7 @@ export default function AddTrips({ route, navigation }: any) {
                     display="spinner"
                     onChange={onDepartDateChange}
                     textColor="#1E293B"
+                    themeVariant="light"
                   />
                   <TouchableOpacity style={styles.modalDoneButton} onPress={confirmDepartDate}>
                     <Text style={styles.modalDoneButtonText}>Done</Text>
@@ -1629,6 +1702,7 @@ export default function AddTrips({ route, navigation }: any) {
                     display="spinner"
                     onChange={onDepartTimeChange}
                     textColor="#1E293B"
+                    themeVariant="light"
                   />
                   <TouchableOpacity style={styles.modalDoneButton} onPress={confirmDepartTime}>
                     <Text style={styles.modalDoneButtonText}>Done</Text>
@@ -1650,6 +1724,7 @@ export default function AddTrips({ route, navigation }: any) {
                     display="spinner"
                     onChange={onArriveDateChange}
                     textColor="#1E293B"
+                    themeVariant="light"
                   />
                   <TouchableOpacity style={styles.modalDoneButton} onPress={confirmArriveDate}>
                     <Text style={styles.modalDoneButtonText}>Done</Text>
@@ -1671,6 +1746,7 @@ export default function AddTrips({ route, navigation }: any) {
                     display="spinner"
                     onChange={onArriveTimeChange}
                     textColor="#1E293B"
+                    themeVariant="light"
                   />
                   <TouchableOpacity style={styles.modalDoneButton} onPress={confirmArriveTime}>
                     <Text style={styles.modalDoneButtonText}>Done</Text>
@@ -1858,7 +1934,7 @@ export default function AddTrips({ route, navigation }: any) {
                     {mapIATAToCity(flight.departure.iata)} {'>'} {mapIATAToCity(flight.arrival.iata)}
                   </Text>
                   <Text style={{ fontFamily: 'Jua', fontSize: 14, color: '#64748B' }}>
-                    Departs {moment(flight.departure.time).format('h:mm A')}
+                    Departs {moment(flight.departure.time).tz(flight.departure.timezone).format('h:mm A')}
                   </Text>
                   <Text style={{ fontFamily: 'Jua', fontSize: 12, color: '#94A3B8' }}>
                     {flight.departure.airport} {'>'} {flight.arrival.airport}

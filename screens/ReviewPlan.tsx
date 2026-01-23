@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,34 +8,28 @@ import {
   Alert,
 } from 'react-native';
 import { usePlans } from '../context/PlanContext';
-import { generateJetLagPlan, getDefaultUserSettings } from '../utils/jetLagAlgorithm';
+import { generateJetLagPlan, getDefaultUserSettings, calculateStayDuration, Trip } from '../utils/jetLagAlgorithm';
 import moment from 'moment';
+import Icon from 'react-native-vector-icons/Feather';
 
-interface FlightSegment {
-  from: string;
-  to: string;
-  departDate: string;
-  departTime: string;
-  arriveDate: string;
-  arriveTime: string;
-}
-
-interface Trip {
-  id: string;
-  from: string;
-  to: string;
-  departDate: string;
-  departTime: string;
-  arriveDate: string;
-  arriveTime: string;
-  hasConnections: boolean;
-  segments: FlightSegment[];
-  connections: any[];
-}
+// Local interfaces removed in favor of importing from jetLagAlgorithm
+// (or if necessary, keep them matching, but we should use the imported one to avoid issues)
 
 export default function ReviewPlan({ route, navigation }: any) {
-  const { planName, trips } = route.params;
+  const { planName, trips: initialTrips } = route.params;
   const { addPlan, updatePlan } = usePlans();
+
+  // Local state for trips to handling modifications (preferences)
+  const [localTrips, setLocalTrips] = useState<Trip[]>(initialTrips);
+
+  // Helper to update a trip's preference
+  const updateTripPreference = (tripId: string, preference: 'stay_home' | 'adjust') => {
+    setLocalTrips(prevTrips =>
+      prevTrips.map(t =>
+        t.id === tripId ? { ...t, adjustmentPreference: preference } : t
+      )
+    );
+  };
 
   const calculateDateRange = (trips: Trip[]): string => {
     if (trips.length === 0) return '';
@@ -67,11 +61,12 @@ export default function ReviewPlan({ route, navigation }: any) {
       if (mode === 'edit' && existingPlanId) {
         // UPDATE existing plan
         console.log('✏️ Updating existing plan');
-        savedPlan = updatePlan(existingPlanId, planName, trips);
+        console.log('✏️ Updating existing plan');
+        savedPlan = updatePlan(existingPlanId, planName, localTrips);
       } else {
         // CREATE new plan
         console.log('➕ Creating new plan');
-        savedPlan = addPlan(planName, trips);
+        savedPlan = addPlan(planName, localTrips);
       }
 
       if (savedPlan) {
@@ -150,30 +145,95 @@ export default function ReviewPlan({ route, navigation }: any) {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Trips in this plan:</Text>
-        {trips.map((trip: Trip, index: number) => (
-          <View key={trip.id} style={styles.tripCard}>
-            <Text style={styles.tripNumber}>Trip {index + 1}</Text>
-            <Text style={styles.tripRoute}>
-              {trip.from} {'>'} {trip.to}
-            </Text>
-            <Text style={styles.tripDetail}>
-              Departs: {moment(trip.departDate).format('MMM D, YYYY')} at {moment(trip.departTime, 'HH:mm').format('h:mm A')}
-            </Text>
-            <Text style={styles.tripDetail}>
-              Arrives: {moment(trip.arriveDate).format('MMM D, YYYY')} at {moment(trip.arriveTime, 'HH:mm').format('h:mm A')}
-            </Text>
-            {trip.hasConnections && trip.segments && (
-              <Text style={styles.tripDetail}>
-                {trip.segments.length} segment(s) with layovers
+        {localTrips.map((trip: Trip, index: number) => {
+          // Calculate stay duration to determine if we show the option
+          const nextTrip = localTrips[index + 1];
+          const stayDuration = calculateStayDuration(trip, nextTrip);
+          const isShortTrip = stayDuration < 3;
+
+          return (
+            <View key={trip.id} style={styles.tripCard}>
+              <Text style={styles.tripNumber}>Trip {index + 1}</Text>
+              <Text style={styles.tripRoute}>
+                {trip.from} {'>'} {trip.to}
               </Text>
-            )}
-          </View>
-        ))}
+              <Text style={styles.tripDetail}>
+                Departs: {moment(trip.departDate).format('MMM D, YYYY')} at {moment(trip.departTime, 'HH:mm').format('h:mm A')}
+              </Text>
+              <Text style={styles.tripDetail}>
+                Arrives: {moment(trip.arriveDate).format('MMM D, YYYY')} at {moment(trip.arriveTime, 'HH:mm').format('h:mm A')}
+              </Text>
+              {trip.hasConnections && trip.segments && (
+                <Text style={styles.tripDetail}>
+                  {trip.segments.length} segment(s) with layovers
+                </Text>
+              )}
+
+              {/* Conditional Adjustment Preference for Short Trips */}
+              {isShortTrip && (
+                <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                    <Icon name="clock" size={14} color="#64748B" style={{ marginRight: 6 }} />
+                    <Text style={{ fontSize: 13, color: '#64748B', fontFamily: 'Jua' }}>
+                      Short Trip detected ({Math.round(stayDuration)} days). Strategy:
+                    </Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        borderRadius: 8,
+                        backgroundColor: (trip.adjustmentPreference === 'stay_home' || !trip.adjustmentPreference) ? '#E0F2FE' : '#F8FAFC',
+                        borderWidth: 1,
+                        borderColor: (trip.adjustmentPreference === 'stay_home' || !trip.adjustmentPreference) ? '#0EA5E9' : '#E2E8F0',
+                        alignItems: 'center'
+                      }}
+                      onPress={() => updateTripPreference(trip.id, 'stay_home')}
+                    >
+                      <Text style={{
+                        fontFamily: 'Jua',
+                        fontSize: 13,
+                        color: (trip.adjustmentPreference === 'stay_home' || !trip.adjustmentPreference) ? '#0284C7' : '#64748B'
+                      }}>
+                        Stay on Origin Time
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        borderRadius: 8,
+                        backgroundColor: trip.adjustmentPreference === 'adjust' ? '#F0FDF4' : '#F8FAFC',
+                        borderWidth: 1,
+                        borderColor: trip.adjustmentPreference === 'adjust' ? '#22C55E' : '#E2E8F0',
+                        alignItems: 'center'
+                      }}
+                      onPress={() => updateTripPreference(trip.id, 'adjust')}
+                    >
+                      <Text style={{
+                        fontFamily: 'Jua',
+                        fontSize: 13,
+                        color: trip.adjustmentPreference === 'adjust' ? '#16A34A' : '#64748B'
+                      }}>
+                        Adjust Fully
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            </View>
+          )
+        })}
       </View>
 
       <View style={styles.infoBox}>
         <Text style={styles.infoText}>
-          Your personalized jet lag plan will be generated based on:
+          Your personalized plan will be generated based on:
         </Text>
         <Text style={styles.infoItem}>• Flight times and layovers</Text>
         <Text style={styles.infoItem}>• Timezone differences</Text>

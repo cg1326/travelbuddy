@@ -1,11 +1,11 @@
 import moment from 'moment-timezone';
 
-interface Connection {
+export interface Connection {
   city: string;
   duration: string;
 }
 
-interface FlightSegment {
+export interface FlightSegment {
   from: string;
   to: string;
   departDate: string;
@@ -14,20 +14,21 @@ interface FlightSegment {
   arriveTime: string;
 }
 
-interface Trip {
+export interface Trip {
   id: string;
   from: string;
   to: string;
   departDate: string;
   departTime: string;
-  arriveDate?: string;
-  arriveTime?: string;
+  arriveDate: string;
+  arriveTime: string;
   hasConnections: boolean;
   segments?: FlightSegment[];
   connections: Connection[];
+  adjustmentPreference?: 'stay_home' | 'adjust'; // User override for short trips
 }
 
-interface Card {
+export interface Card {
   id: string;
   title: string;
   time: string;
@@ -40,14 +41,14 @@ interface Card {
   isDailyRoutine?: boolean;
 }
 
-interface Phase {
+export interface Phase {
   name: string;
   dateRange: string;
   cards: Card[];
   durationDays?: number;
 }
 
-interface TripPlan {
+export interface TripPlan {
   tripId: string;
   from: string;
   to: string;
@@ -57,9 +58,11 @@ interface TripPlan {
     travel: Phase;
     adjust: Phase;
   };
+  strategy: 'stay_home' | 'adjust';
+  suppressPreparePhase?: boolean; // True when prepare phase overlaps with previous trip's adjust phase
 }
 
-interface UserSettings {
+export interface UserSettings {
   normalBedtime: string;
   normalWakeTime: string;
   // chronotype: 'early' | 'neither' | 'night';
@@ -497,15 +500,24 @@ function formatTimeRange12Hour(start: string, end: string): string {
   return `${formatTime12Hour(start)} - ${formatTime12Hour(end)}`;
 }
 
-function getCityTimezone(city: string): string {
-  return cityTimezones[city] || 'UTC';
+export function getCityTimezone(city: string): string {
+  // Check if it's a city directly
+  if (cityTimezones[city]) {
+    return cityTimezones[city];
+  }
+  // Check if it's an airport code mapping to a city
+  const cityFromCode = airportMappings[city];
+  if (cityFromCode && cityTimezones[cityFromCode]) {
+    return cityTimezones[cityFromCode];
+  }
+  return 'UTC';
 }
 
-function calculateTimezoneDiff(from: string, to: string, date: string): number {
-  const fromTz = getCityTimezone(from);
+function calculateTimezoneDiff(from: string, to: string, date: string, fromTzOverride?: string): number {
+  const fromTz = fromTzOverride || getCityTimezone(from);
   const toTz = getCityTimezone(to);
 
-  if (fromTz === 'UTC' && !cityTimezones[from]) {
+  if (fromTz === 'UTC' && !cityTimezones[from] && !fromTzOverride) {
     console.warn(`City not found in timezone database: ${from}`);
     return 0;
   }
@@ -532,13 +544,21 @@ function parseLayoverDuration(duration: string): number {
   return match ? parseFloat(match[1]) : 0;
 }
 
-function calculateStayDuration(trip: Trip, nextTrip?: Trip): number {
+export function calculateStayDuration(trip: Trip, nextTrip?: Trip): number {
   if (!nextTrip) return 999;
 
-  const departDate = moment(trip.departDate);
-  const nextDepartDate = moment(nextTrip.departDate);
+  // Calculate arrival at destination (using last segment if available)
+  const lastSegment = trip.segments && trip.segments.length > 0
+    ? trip.segments[trip.segments.length - 1]
+    : null;
 
-  return nextDepartDate.diff(departDate, 'days');
+  const arrivalMoment = lastSegment
+    ? moment(`${lastSegment.arriveDate} ${lastSegment.arriveTime}`, 'YYYY-MM-DD HH:mm')
+    : moment(`${trip.departDate} ${trip.departTime}`, 'YYYY-MM-DD HH:mm').add(6, 'hours'); // rough estimate if no segments
+
+  const nextDepartMoment = moment(`${nextTrip.departDate} ${nextTrip.departTime}`, 'YYYY-MM-DD HH:mm');
+
+  return nextDepartMoment.diff(arrivalMoment, 'days', true);
 }
 
 function determineAdjustmentStrategy(
@@ -548,25 +568,47 @@ function determineAdjustmentStrategy(
 ): { percentage: number; reason: string } {
   const stayDuration = calculateStayDuration(trip, nextTrip);
 
+  // Check for User Preference Override - PRIORITIZE over duration/diff logic
+  if (trip.adjustmentPreference === 'stay_home') {
+    return {
+      percentage: 0,
+      reason: `As requested, we'll keep you on your origin schedule for this trip.`
+    };
+  }
+
+  if (trip.adjustmentPreference === 'adjust') {
+    // Force adjustment (Partial or Full depending on length, but never 0%)
+    // If it's short but they want to adjust, give them Partial (60%) or Full (100%)?
+    // Let's give them Partial for short trips to be safe, unless it's actually long.
+    const percentage = stayDuration >= 6 ? 100 : 60;
+    const reason = stayDuration >= 6
+      ? 'Full adjustment to harmonize with local time.'
+      : `You chose to adjust. We'll shift your schedule just enough to keep you energized.`;
+
+    return { percentage, reason };
+  }
+
+  // < 3 days: "Stay Home" equivalent (Default if no preference)
+  if (stayDuration < 3) {
+    return {
+      percentage: 0,
+      reason: `Quick trip (${Math.round(stayDuration)} days). We'll focus on boosting your energy when you need it most.`
+    };
+  }
+
+  if (hoursDiff < 1) {
+    return {
+      percentage: 0,
+      reason: 'No significant timezone difference.'
+    };
+  }
+
   if (hoursDiff < 3) {
-    return { percentage: 50, reason: 'Small timezone difference - minimal adjustment needed' };
+    return { percentage: 50, reason: 'Small timezone difference.' };
   }
 
-  if (stayDuration < 4) {
-    return {
-      percentage: 60,
-      reason: `Short ${stayDuration}-day stay - partial adjustment to reduce jet lag on both ends`
-    };
-  }
-
-  if (stayDuration >= 4 && stayDuration < 7 && nextTrip) {
-    return {
-      percentage: 80,
-      reason: `${stayDuration}-day stay with ${nextTrip.to} trip coming - strong but flexible adjustment`
-    };
-  }
-
-  return { percentage: 100, reason: 'Full adjustment to destination timezone' };
+  // 3+ days: Full adjustment
+  return { percentage: 100, reason: 'Full adjustment to harmonize with local time.' };
 }
 
 function adjustTimeForChronotype(
@@ -593,13 +635,52 @@ export function generateJetLagPlan(
   allTrips: Trip[],
   userSettings: UserSettings
 ): TripPlan {
-  const tzDiff = calculateTimezoneDiff(trip.from, trip.to, trip.departDate);
+  // Determine "effective" origin timezone for calculation
+  // default: local timezone of departure city
+  let effectiveFromTz = getCityTimezone(trip.from);
+  let effectiveHoursDiff = 0;
+  let circadianOriginCity = trip.from;
+
+  // Check previous trips to see if we are actually fully adjusted to trip.from
+  const currentTripIndex = allTrips.findIndex(t => t.id === trip.id);
+
+  if (currentTripIndex > 0) {
+    // Recursive lookback:
+    // If previous trip was "Stay Home", our body is still at THAT trip's origin.
+    // We trace back until we find a trip where we Adjusted (or the start of the chain).
+
+    let checkIndex = currentTripIndex - 1;
+
+    while (checkIndex >= 0) {
+      const prevTrip = allTrips[checkIndex];
+      const nextTripForPrev = allTrips[checkIndex + 1]; // The trip FOLLOWING prevTrip
+
+      // Calc dwell time / strategy for the prev trip
+      const prevDiff = calculateTimezoneDiff(prevTrip.from, prevTrip.to, prevTrip.departDate);
+      const prevStrategy = determineAdjustmentStrategy(prevTrip, nextTripForPrev, prevDiff);
+
+      if (prevStrategy.percentage === 0) {
+        // "Stay Home" strategy means we kept the rhythm of prevTrip.from
+        // So effective origin bubbles up to prevTrip.from
+        circadianOriginCity = prevTrip.from;
+        effectiveFromTz = getCityTimezone(circadianOriginCity);
+        checkIndex--;
+      } else {
+        // We Adjusted during this previous trip. 
+        // So the chain breaks - we are acclimated to prevTrip.to (which is effectively where we started our loop)
+        break;
+      }
+    }
+  }
+
+  // 1. Analyze Timezone Difference (using effective origin)
+  const tzDiff = calculateTimezoneDiff(circadianOriginCity, trip.to, trip.departDate, effectiveFromTz);
   const direction = getDirection(tzDiff);
   const hoursDiff = Math.abs(tzDiff);
 
-  const currentIndex = allTrips.findIndex(t => t.id === trip.id);
-  const nextTrip = currentIndex >= 0 && currentIndex < allTrips.length - 1
-    ? allTrips[currentIndex + 1]
+  // 2. Determine Strategy
+  const nextTrip = currentTripIndex >= 0 && currentTripIndex < allTrips.length - 1
+    ? allTrips[currentTripIndex + 1]
     : undefined;
 
   const adjustmentStrategy = determineAdjustmentStrategy(trip, nextTrip, hoursDiff);
@@ -621,20 +702,46 @@ export function generateJetLagPlan(
 
   const adjustEndDateCalculated = moment(adjustStartDate).add(1, 'days').format('YYYY-MM-DD');
 
+  // Check if previous trip's adjust phase overlaps with current trip's prepare phase
+  let hasOverlapWithPrevTrip = false;
+  if (currentTripIndex > 0) {
+    const prevTrip = allTrips[currentTripIndex - 1];
+
+    // Calculate previous trip's adjust phase end date
+    const prevLastSegment = prevTrip.segments && prevTrip.segments.length > 0
+      ? prevTrip.segments[prevTrip.segments.length - 1]
+      : null;
+
+    const prevAdjustStartDate = prevLastSegment && prevLastSegment.arriveDate
+      ? prevLastSegment.arriveDate
+      : moment(prevTrip.departDate).add(1, 'days').format('YYYY-MM-DD');
+
+    // Adjust phase duration is fixed at 2 days (arrival + 1 day)
+    const prevAdjustEndDate = moment(prevAdjustStartDate).add(1, 'days').format('YYYY-MM-DD');
+
+    // Check if previous adjust phase extends into or past current prepare phase
+    if (moment(prevAdjustEndDate).isSameOrAfter(moment(prepareStartDate))) {
+      hasOverlapWithPrevTrip = true;
+    }
+  }
+
   const prepareCards = generatePrepareCards(
     trip,
     direction,
     hoursDiff,
     userSettings,
     prepareStartDate,
-    prepDays
+    prepDays,
+    hasOverlapWithPrevTrip
   );
 
   const travelCards = generateTravelCards(
     trip,
     direction,
     hoursDiff,
-    userSettings
+    userSettings,
+    adjustmentStrategy,
+    circadianOriginCity
   );
 
   const adjustmentDuration = 2; // FIXED: Limit to Arrival + 1 Day as requested by user
@@ -646,7 +753,8 @@ export function generateJetLagPlan(
     adjustmentStrategy,
     userSettings,
     nextTrip,
-    adjustStartDate
+    adjustStartDate,
+    circadianOriginCity
   );
 
 
@@ -679,6 +787,8 @@ export function generateJetLagPlan(
         durationDays: adjustmentDuration,
       },
     },
+    strategy: adjustmentStrategy.percentage === 0 ? 'stay_home' : 'adjust',
+    suppressPreparePhase: hasOverlapWithPrevTrip,
   };
 }
 
@@ -688,9 +798,16 @@ function generatePrepareCards(
   hoursDiff: number,
   userSettings: UserSettings,
   startDate: string,
-  prepDays: number
+  prepDays: number,
+  hasOverlapWithPrevTrip: boolean = false
 ): Card[] {
   const cards: Card[] = [];
+
+  // If previous trip's adjust phase overlaps with this trip's prepare phase,
+  // suppress prepare cards to avoid redundancy with daily routine cards
+  if (hasOverlapWithPrevTrip) {
+    return cards; // Return empty array - daily routine from previous trip continues
+  }
 
   // Check for late-night/overnight departure conflict
   // If flight departs between 9 PM and 5 AM, the "night before" is effectively a travel night, not a sleep night.
@@ -705,16 +822,19 @@ function generatePrepareCards(
   }
 
   if (hoursDiff < 3) {
-    cards.push({
-      id: 'prep-rest',
-      title: 'Get Good Rest',
-      time: 'Evening',
-      icon: '😴',
-      color: '#6366f1',
-      why: `Only ${hoursDiff} hour difference - your body can adjust gradually. Focus on being well-rested.`,
-      how: 'Maintain your normal sleep schedule. Pack and prepare without stress.',
-      dateTime: moment.tz(`${startDate} 20:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
-    });
+    // Only show sleep advice if there is some difference (>= 1h)
+    if (hoursDiff >= 1) {
+      cards.push({
+        id: 'prep-rest',
+        title: 'Get Good Rest',
+        time: 'Evening',
+        icon: '🌙',
+        color: '#1C5D74',
+        why: `Only ${hoursDiff} hour difference - your body can adjust gradually. Focus on being well-rested.`,
+        how: 'Maintain your normal sleep schedule. Pack and prepare without stress.',
+        dateTime: moment.tz(`${startDate} 20:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+      });
+    }
 
     // FIX #5: Add more cards for short trips
     cards.push({
@@ -753,6 +873,11 @@ function generatePrepareCards(
 
   }
 
+  // If timezone difference is negligible (e.g. < 1 hour), skip specific sleep/light shifting
+  if (hoursDiff < 1) {
+    return cards;
+  }
+
   if (direction === 'east') {
     // Calculate light window based on user wake time
     const wakeTimeMoment = moment(userSettings.normalWakeTime, 'HH:mm');
@@ -783,7 +908,7 @@ function generatePrepareCards(
         title: 'Sleep Earlier',
         time: formatTime12Hour(earlierBedtime),
         icon: '🌙',
-        color: '#6366f1',
+        color: '#1C5D74',
         why: `Consider shifting your sleep 30 minutes earlier than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime for ${effectivePrepDays} day${effectivePrepDays > 1 ? 's' : ''} before departure.`,
         how: 'Try to go to bed 30-60 minutes earlier than usual. Dim lights after 8 PM. Limit screen time before bed.',
         dateTime: moment.tz(`${startDate} ${earlierBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
@@ -826,7 +951,7 @@ function generatePrepareCards(
         title: 'Sleep Later',
         time: formatTime12Hour(laterBedtime),
         icon: '🌙',
-        color: '#6366f1',
+        color: '#1C5D74',
         why: `Consider shifting your sleep 30 minutes later than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime for ${effectivePrepDays} day${effectivePrepDays > 1 ? 's' : ''} before departure.`,
         how: 'Try to stay up 30-60 minutes later than usual. Keep lights bright in the evening.',
         dateTime: moment.tz(`${startDate} ${laterBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
@@ -841,7 +966,9 @@ function generateTravelCards(
   trip: Trip,
   direction: 'east' | 'west',
   hoursDiff: number,
-  userSettings: UserSettings
+  userSettings: UserSettings,
+  adjustmentStrategy: { percentage: number; reason: string },
+  circadianOriginCity: string
 ): Card[] {
   const cards: Card[] = [];
 
@@ -990,10 +1117,7 @@ function generateTravelCards(
   let currentDate = journeyStart.clone().startOf('day');
   const endDate = journeyEnd.clone().endOf('day');
 
-  console.log('=== Day Loop Debug ===');
-  console.log('Journey start:', journeyStart.format('YYYY-MM-DD HH:mm'));
-  console.log('Journey end:', journeyEnd.format('YYYY-MM-DD HH:mm'));
-  console.log('Loop will run from:', currentDate.format('YYYY-MM-DD'), 'to:', endDate.format('YYYY-MM-DD'));
+
 
   while (currentDate.isSameOrBefore(endDate, 'day')) {
     const dateStr = currentDate.format('MMM D');
@@ -1008,8 +1132,7 @@ function generateTravelCards(
       return segDepartDate === dateYYYYMMDD;
     });
 
-    console.log(`  Found ${segmentsDepartingToday.length} segments departing today: ` +
-      segmentsDepartingToday.map(a => `${a.segment.from} > ${a.segment.to}`).join(', '));
+
 
     if (segmentsDepartingToday.length > 0) {
       const isFirstDay = currentDate.isSame(journeyStart, 'day');
@@ -1139,12 +1262,152 @@ function generateTravelCards(
           dateTime: analysis.departMoment.clone().subtract(20, 'minutes').toISOString(),
         });
 
+        // === STRICT STAY HOME LOGIC ===
+        if (adjustmentStrategy.percentage === 0) {
+          // 1. Get Origin Timezone
+          const originCity = circadianOriginCity;
+          const originTz = getCityTimezone(originCity);
+
+          // 2. Convert Flight Times to Origin Time
+          const departOrigin = moment.tz(segment.departDate + ' ' + segment.departTime, getCityTimezone(segment.from)).tz(originTz);
+          const durationMinutes = analysis.durationHours * 60;
+          const arriveOrigin = departOrigin.clone().add(durationMinutes, 'minutes');
+
+          // 3. Define "Sleep Window" at Origin (22:00 - 06:00)
+          // We need to find if the flight overlaps with ANY sleep window.
+          // The flight could cover yesterday's sleep, today's sleep, or tomorrow's sleep.
+
+          let proposedSleepStart: moment.Moment | null = null;
+          let proposedSleepEnd: moment.Moment | null = null;
+          let maxOverlapMinutes = 0;
+
+          // Parse user settings
+          const bedTimeStr = userSettings.normalBedtime || "22:00";
+          const wakeTimeStr = userSettings.normalWakeTime || "06:00";
+          const bedHour = parseInt(bedTimeStr.split(':')[0]);
+          const bedMin = parseInt(bedTimeStr.split(':')[1]);
+          const wakeHour = parseInt(wakeTimeStr.split(':')[0]);
+          const wakeMin = parseInt(wakeTimeStr.split(':')[1]);
+
+          // duration of sleep window
+          // If wake < bed (e.g. 07:00 < 23:00), it implies next day
+          let sleepDurationMinutes = (wakeHour * 60 + wakeMin) - (bedHour * 60 + bedMin);
+          if (sleepDurationMinutes < 0) sleepDurationMinutes += 24 * 60;
+
+          // Buffer arrival time: Stop sleeping 45 mins before landing for descent/prep
+          const effectiveArriveOrigin = arriveOrigin.clone().subtract(45, 'minutes');
+
+          const checkOffsets = [-1, 0, 1];
+
+          checkOffsets.forEach(dayOffset => {
+            // "Night" starts at user's bedtime on the offset day
+            const nightStart = departOrigin.clone().add(dayOffset, 'days').startOf('day').hour(bedHour).minute(bedMin);
+            const nightEnd = nightStart.clone().add(sleepDurationMinutes, 'minutes');
+
+            // Calculate intersection between [Depart, Arrive-Buffer] and [NightStart, NightEnd]
+            const overlapStart = moment.max(departOrigin, nightStart);
+            const overlapEnd = moment.min(effectiveArriveOrigin, nightEnd);
+
+            if (overlapEnd.isAfter(overlapStart)) {
+              const overlapDuration = overlapEnd.diff(overlapStart, 'minutes');
+              if (overlapDuration > maxOverlapMinutes) {
+                maxOverlapMinutes = overlapDuration;
+                proposedSleepStart = overlapStart;
+                proposedSleepEnd = overlapEnd;
+              }
+            }
+          });
+
+          // 4. Decision: If overlap > 60 mins, suggest sleep.
+          if (maxOverlapMinutes > 60 && proposedSleepStart && proposedSleepEnd) {
+            // Round to nearest 15 minutes
+            const roundNear15 = (m: moment.Moment) => {
+              const remainder = m.minute() % 15;
+              if (remainder < 8) return m.clone().subtract(remainder, 'minutes').startOf('minute');
+              return m.clone().add(15 - remainder, 'minutes').startOf('minute');
+            };
+
+            let finalSleepStart = roundNear15(proposedSleepStart as moment.Moment);
+            let finalSleepEnd = roundNear15(proposedSleepEnd as moment.Moment);
+
+            // Clamp: Ensure sleep end doesn't exceed effective arrival
+            // (Rounding up might push 4:54 -> 5:00 when arriving at 5:00)
+            if (finalSleepEnd.isAfter(effectiveArriveOrigin)) {
+              // If rounding pushes it over, just use the effective arrival (floored to minute)
+              finalSleepEnd = effectiveArriveOrigin.clone().startOf('minute');
+            }
+
+            const sleepStartStr = finalSleepStart.format('h:mm A');
+            const sleepEndStr = finalSleepEnd.format('h:mm A');
+            const originBedTimeFmt = moment(bedTimeStr, "HH:mm").format("h:mm A");
+            const originWakeTimeFmt = moment(wakeTimeStr, "HH:mm").format("h:mm A");
+
+            cards.push({
+              id: `sleep-${segment.from}-${segment.to}-stayhome`,
+              title: `Sleep ${sleepStartStr} - ${sleepEndStr}`,
+              time: `${sleepStartStr} - ${sleepEndStr} (${originCity} Time)`,
+              icon: '😴',
+              color: '#1C5D74',
+              why: `This matches your normal sleep schedule in ${originCity} (${originBedTimeFmt} - ${originWakeTimeFmt}).`,
+              how: `Use eye mask and earplugs. Set an alarm for ${sleepEndStr}.`,
+              dateTime: (proposedSleepStart as moment.Moment).toISOString(),
+            });
+
+            // If there's a significant awake period BEFORE sleep
+            const awakeDurationBefore = (proposedSleepStart as moment.Moment).diff(departOrigin, 'minutes');
+            if (awakeDurationBefore > 45) {
+              cards.push({
+                id: `awake-pre-${segment.from}-${segment.to}-stayhome`,
+                title: `Stay Awake`,
+                time: `Until ${sleepStartStr}`,
+                icon: '👁️',
+                color: '#FFF7C5',
+                why: `It's still daytime in ${originCity}. Wait until ${sleepStartStr} to sleep.`,
+                how: `Watch a movie or read.`,
+                dateTime: departOrigin.toISOString(),
+              });
+            }
+
+            // If there's a significant awake period AFTER sleep
+            const awakeDurationAfter = arriveOrigin.diff((proposedSleepEnd as moment.Moment), 'minutes');
+            if (awakeDurationAfter > 45) {
+              cards.push({
+                id: `awake-post-${segment.from}-${segment.to}-stayhome`,
+                title: `Wake Up & Stay Awake`,
+                time: `From ${sleepEndStr}`,
+                icon: '👁️',
+                color: '#FFF7C5',
+                why: `It's morning in ${originCity} (${sleepEndStr}).`,
+                how: `Force yourself to wake up to stay on your home schedule.`,
+                dateTime: (proposedSleepEnd as moment.Moment).toISOString(),
+              });
+            }
+
+          } else {
+            // No sleep overlap - Stay Awake
+            cards.push({
+              id: `awake-${segment.from}-${segment.to}-stayhome`,
+              title: `Stay Awake`,
+              time: `Throughout flight`,
+              icon: '👁️',
+              color: '#FFF7C5',
+              why: `It's daytime back home in ${originCity}. Staying awake helps you keep your natural rhythm.`,
+              how: `Watch movies, work, or read. Staying engaged will help you feel more energized when you arrive.`,
+              dateTime: analysis.departMoment.clone().toISOString(),
+            });
+          }
+          // SKIP standard logic
+          return;
+        }
+
         // === Add sleep/wake recommendation for THIS specific flight ===
         if (analysis.shouldSleep) {
           // Calculate specific sleep window
           const arriveHourLocal = analysis.arriveMoment.hour();
           let sleepStart: moment.Moment;
           let sleepEnd: moment.Moment;
+
+
 
           if (arriveHourLocal >= 5 && arriveHourLocal < 18) {
             // Day Arrival: Anchor to Arrival (Wake up just before landing)
@@ -1166,9 +1429,26 @@ function generateTravelCards(
           if (sleepStart.isBefore(analysis.departMoment)) {
             sleepStart = analysis.departMoment.clone().add(30, 'minutes');
           }
-          // Ensure sleep end isn't after arrival
-          if (sleepEnd.isAfter(analysis.arriveMoment)) {
-            sleepEnd = analysis.arriveMoment.clone().subtract(20, 'minutes');
+          // Ensure sleep end isn't after arrival (Buffer 45 mins)
+          // Was 20, changing to 45 for consistency with Stay Home logic
+          const effectiveArrive = analysis.arriveMoment.clone().subtract(45, 'minutes');
+          if (sleepEnd.isAfter(effectiveArrive)) {
+            sleepEnd = effectiveArrive;
+          }
+
+          // Rounding Logic
+          const roundNear15 = (m: moment.Moment) => {
+            const remainder = m.minute() % 15;
+            if (remainder < 8) return m.clone().subtract(remainder, 'minutes').startOf('minute');
+            return m.clone().add(15 - remainder, 'minutes').startOf('minute');
+          };
+
+          sleepStart = roundNear15(sleepStart);
+          sleepEnd = roundNear15(sleepEnd);
+
+          // Re-clamp after rounding just in case rounding pushed it over
+          if (sleepEnd.isAfter(effectiveArrive)) {
+            sleepEnd = effectiveArrive.clone().startOf('minute');
           }
 
           // Determine dynamic descriptions based on strategy
@@ -1193,6 +1473,8 @@ function generateTravelCards(
             how: howText,
             dateTime: sleepStart.clone().subtract(15, 'minutes').toISOString(),
           });
+
+
         } else if (analysis.isDaytimeFlight && analysis.durationHours >= 2) {
           cards.push({
             id: `awake-${segment.from}-${segment.to}`,
@@ -1200,7 +1482,9 @@ function generateTravelCards(
             time: `${analysis.departMoment.format('h:mm A z')} - ${analysis.arriveMoment.format('h:mm A z')}`,
             icon: '👁️',
             color: '#F3F0ED',
-            why: `This flight is during daytime at your destination. Stay awake to stay aligned with ${trip.to} timezone.`,
+            why: adjustmentStrategy.percentage === 0
+              ? `It's daytime in ${circadianOriginCity}. Stay awake to stay aligned with ${circadianOriginCity} timezone.`
+              : `This flight is during daytime at your destination. Stay awake to stay aligned with ${trip.to} timezone.`,
             how: `Watch movies, read, work. Accept meals. Walk around cabin. Stay engaged and alert.`,
             dateTime: analysis.departMoment.clone().subtract(5, 'minutes').toISOString(),
           });
@@ -1276,11 +1560,10 @@ function generateTravelCards(
 
     }
 
-    console.log('Moving to next day...\n');
     currentDate.add(1, 'day');
   }
 
-  console.log('=== Day Loop Complete ===\n');
+
 
   // === Add overall hydration card ===
   cards.push({
@@ -1308,7 +1591,8 @@ function generateAdjustCards(
   adjustmentStrategy: { percentage: number; reason: string },
   userSettings: UserSettings,
   nextTrip: Trip | undefined,
-  startDate: string
+  startDate: string,
+  circadianOriginCity: string
 ): Card[] {
   const cards: Card[] = [];
 
@@ -1342,16 +1626,22 @@ function generateAdjustCards(
     time: `Landed at ${landingTime}`,
     icon: '🎉',
     color: '#10b981',
-    why: `You've reached ${trip.to}. Now it's time to lock in the new timezone.`,
-    how: 'Get your bags, clear customs, head to your accommodation. The adjustment phase begins now.',
+    why: (adjustmentStrategy.percentage === 0 && !trip.adjustmentPreference)
+      ? `You've reached ${trip.to}. Short trips are about energy management.`
+      : adjustmentStrategy.reason,
+    how: (adjustmentStrategy.percentage === 0 && !trip.adjustmentPreference)
+      ? 'Get your bags and head to your accommodation. Focus on rest when you can.'
+      : (adjustmentStrategy.percentage === 0 && trip.adjustmentPreference === 'stay_home')
+        ? 'Stick to your origin schedule as much as possible. Focus on rest when you can.'
+        : 'Get your bags, clear customs, head to your accommodation. The adjustment phase begins now.',
     dateTime: landingMoment.toISOString(),
   });
 
   // If land between 4 AM and 10 AM - get morning sunlight immediately
-  // If land between 4 AM and 10 AM - get morning sunlight immediately
   // NOTE: For late night arrivals (< 4 AM), we SKIP this card.
   // The Daily Routine "Seek Sunlight" card will cover the morning of this arrival day.
-  if (landingHour >= 4 && landingHour < 10) {
+  // ALSO SKIP for Stay Home strategy
+  if (adjustmentStrategy.percentage > 0 && landingHour >= 4 && landingHour < 10) {
     cards.push({
       id: 'adjust-arrival-morning-light',
       title: 'Seek Morning Sunlight Now', // Changed title to distinguish from daily routine
@@ -1364,8 +1654,8 @@ function generateAdjustCards(
     });
   }
 
-  // If land 10 AM - 6 PM - get afternoon sunlight
-  if (landingHour >= 10 && landingHour < 18) {
+  // If land 10 AM - 6 PM - get afternoon sunlight (Skip for Stay Home)
+  if (adjustmentStrategy.percentage > 0 && landingHour >= 10 && landingHour < 18) {
     cards.push({
       id: 'adjust-arrival-afternoon-light',
       title: 'Get Afternoon Sunlight',
@@ -1381,7 +1671,8 @@ function generateAdjustCards(
   // Caffeine guidance for arrival day
   // Only suggest caffeine if landing during normal morning hours (6 AM+).
   // Avoid suggesting it for middle-of-the-night arrivals (e.g. 1 AM) where sleep is priority.
-  if (landingHour >= 6 && landingHour < 14) {
+  // SKIP for Stay Home strategy (users should stick to origin habits)
+  if (adjustmentStrategy.percentage > 0 && landingHour >= 6 && landingHour < 14) {
     cards.push({
       id: 'adjust-arrival-caffeine',
       title: 'Caffeine OK Until 2 PM',
@@ -1394,9 +1685,9 @@ function generateAdjustCards(
     });
   }
 
-  // No caffeine after 2 PM (Always show, UNLESS it's a Late Night Arrival)
+  // No caffeine after 2 PM (Always show, UNLESS it's a Late Night Arrival OR Stay Home Strategy)
   // For Late Night Arrivals, the Daily Routine "Limit Caffeine" card will cover this day.
-  if (!isLateNightArrival) {
+  if (!isLateNightArrival && adjustmentStrategy.percentage > 0) {
     const noCaffeineTime = landingMoment.clone().hour(14).minute(0).second(0);
     cards.push({
       id: 'adjust-arrival-no-caffeine',
@@ -1410,23 +1701,86 @@ function generateAdjustCards(
     });
   }
 
+  // ============================================
+  // SIMPLIFIED: Stay Home Strategy - Simple Energy Management
+  // ============================================
+  if (adjustmentStrategy.percentage === 0) {
+    // Check if returning home (no advice needed - just resume normal life)
+    const localTz = getCityTimezone(trip.to);
+    const homeTz = getCityTimezone(circadianOriginCity);
+    const isReturningHome = localTz === homeTz;
+
+    if (!isReturningHome) {
+      // Simple energy management card - no specific times, no timezone math
+      cards.push({
+        id: 'adjust-stay-home-tips',
+        title: 'Managing Energy',
+        time: 'Throughout your stay',
+        icon: '⚡',
+        color: '#FFD4C4',
+        why: `Short trip - your body will stay on ${circadianOriginCity} time. Focus on rest and energy management.`,
+        how: `Listen to your body. Rest when tired. Stay hydrated. Eat light meals. Gentle exercise helps. You'll naturally feel alert during your usual waking hours.`,
+        dateTime: landingMoment.clone().add(2, 'hours').toISOString(),
+      });
+    }
+  }
+
   const arrivalDate = landingMoment.format('YYYY-MM-DD');
 
 
   // Evening meal and sleep guidance - conditional based on arrival time
   if (landingHour >= 22 || landingHour < 4) {
-    // Very late arrival (10 PM or later) - just go to bed
-    cards.push({
-      id: 'adjust-arrival-sleep-now',
-      title: 'Head to Bed Soon',
-      time: 'As soon as you can',
-      icon: '🌙',
-      color: '#1C5D74',
-      why: `You arrived at ${landingTime}. Get some rest tonight and start the full adjustment routine tomorrow.`,
-      how: `Get to your accommodation and sleep. ${userSettings.useMelatonin ? 'Using melatonin is an option if you choose.' : ''
-        } Tomorrow you'll begin the complete adjustment schedule.`,
-      dateTime: landingMoment.toISOString(),
-    });
+    // Very late arrival (10 PM or later)
+
+    // FIX FOR STAY HOME: Check Origin Time!
+    // If it's 7 AM at origin, do NOT tell them to go to sleep.
+    let shouldSleepNow = true;
+    let overrideTitle = '';
+    let overrideMsg = '';
+
+    if (adjustmentStrategy.percentage === 0) {
+      const originTz = getCityTimezone(circadianOriginCity);
+      const landingAtOrigin = landingMoment.clone().tz(originTz);
+      const originHour = landingAtOrigin.hour();
+
+      // If it is DAYTIME at origin (e.g. 6 AM to 8 PM), advise staying awake
+      if (originHour >= 6 && originHour < 20) {
+        shouldSleepNow = false;
+        overrideTitle = `Start Your Day`;
+        overrideMsg = `It's ${landingAtOrigin.format('h:mm A')} in ${circadianOriginCity}. Even though it's late here, try to stay awake to maintain your origin schedule.`;
+      }
+    }
+
+    if (shouldSleepNow) {
+      cards.push({
+        id: 'adjust-arrival-sleep-now',
+        title: 'Head to Bed Soon',
+        time: 'As soon as you can',
+        icon: '🌙',
+        color: '#1C5D74',
+        why: adjustmentStrategy.percentage === 0
+          ? `You arrived late. Sleep now to get some rest before continuing your day on ${circadianOriginCity} time.`
+          : `You arrived at ${landingTime}. Get some rest tonight and start the full adjustment routine tomorrow.`,
+        how: adjustmentStrategy.percentage === 0
+          ? `Get some sleep now. You'll want to wake up closer to your normal time in ${circadianOriginCity}.`
+          : `Get to your accommodation and sleep. ${userSettings.useMelatonin ? 'Using melatonin is an option if you choose.' : ''
+          } Tomorrow you'll begin the complete adjustment schedule.`,
+        dateTime: landingMoment.toISOString(),
+      });
+    } else {
+      // Stay Home + Daytime at Origin -> Suggest Activity
+      cards.push({
+        id: 'adjust-arrival-stay-awake',
+        title: overrideTitle,
+        time: 'Until usual bedtime',
+        icon: '👁️',
+        color: '#FFF7C5',
+        why: overrideMsg,
+        how: `Light activity, read, or work. Wait until your normal bedtime in ${circadianOriginCity} to sleep.`,
+        dateTime: landingMoment.toISOString(),
+      });
+    }
+
   } else if (landingHour >= 18) {
     // Evening arrival (6 PM - 10 PM) - light meal then bed
     cards.push({
@@ -1441,63 +1795,86 @@ function generateAdjustCards(
     });
 
 
-    cards.push({
-      id: 'adjust-arrival-sleep',
-      title: 'Sleep at Local Bedtime',
-      time: formatTime12Hour(userSettings.normalBedtime),
-      icon: '🌙',
-      color: '#1C5D74',
-      why: 'Getting to bed at a reasonable local time helps start your adjustment.',
-      how: `Try to sleep around ${formatTime12Hour(userSettings.normalBedtime)}. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
-        } Keep room dark and cool.`,
-      dateTime: moment.tz(`${arrivalDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
-    });
+    if (adjustmentStrategy.percentage > 0) {
+      cards.push({
+        id: 'adjust-arrival-sleep',
+        title: 'Sleep at Local Bedtime',
+        time: formatTimeRange12Hour(userSettings.normalBedtime, moment(userSettings.normalBedtime, 'HH:mm').add(8, 'hours').format('HH:mm')),
+        icon: '🌙',
+        color: '#1C5D74',
+        why: 'Getting to bed at a reasonable local time helps start your adjustment.',
+        how: `Try to sleep around ${formatTime12Hour(userSettings.normalBedtime)}. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
+          } Keep room dark and cool.`,
+        dateTime: moment.tz(`${arrivalDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+      });
+    } else {
+      // Stay Home logic for evening arrival?
+      // Maybe just "Rest when tired"
+      cards.push({
+        id: 'adjust-arrival-rest-home',
+        title: 'Rest When Tired',
+        time: 'Evening',
+        icon: '🌙',
+        color: '#1C5D74',
+        why: 'Stick to your origin schedule where possible, but rest if you are exhausted.',
+        how: 'If it is sleep time at origin, go to bed. Otherwise, try to stay awake or take a short nap.',
+        dateTime: landingMoment.clone().add(1, 'hour').toISOString(),
+      });
+    }
   } else {
     // Daytime arrival (before 6 PM) - normal dinner and sleep schedule
-    const dinnerTime = landingMoment.clone().hour(18).minute(0).second(0);
-    cards.push({
-      id: 'adjust-arrival-dinner',
-      title: 'Eat Dinner at Local Time',
-      time: '6:00 - 8:00 PM',
-      icon: '🍽️',
-      color: '#F3F0ED',
-      why: 'Eating at local meal times helps reset your internal clock.',
-      how: 'Have dinner at a normal local dinner time, even if not hungry. Light meal is fine.',
-      dateTime: dinnerTime.toISOString(),
-    });
+    // Only for Adjustment Strategy
+    if (adjustmentStrategy.percentage > 0) {
+      const dinnerTime = landingMoment.clone().hour(18).minute(0).second(0);
+      cards.push({
+        id: 'adjust-arrival-dinner',
+        title: 'Eat Dinner at Local Time',
+        time: '6:00 - 8:00 PM',
+        icon: '🍽️',
+        color: '#F3F0ED',
+        why: 'Eating at local meal times helps reset your internal clock.',
+        how: 'Have dinner at a normal local dinner time, even if not hungry. Light meal is fine.',
+        dateTime: dinnerTime.toISOString(),
+      });
+    }
 
-    cards.push({
-      id: 'adjust-arrival-sleep',
-      title: 'Sleep at Local Time Tonight',
-      time: formatTime12Hour(userSettings.normalBedtime),
-      icon: '🌙',
-      color: '#1C5D74',
-      why: 'Your first night in the new timezone. Sleeping at normal local bedtime is recommended even if not tired.',
-      how: `Try to go to bed around ${formatTime12Hour(userSettings.normalBedtime)}. Keep room dark and cool. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
-        }`,
-      dateTime: moment.tz(`${arrivalDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
-    });
+    if (adjustmentStrategy.percentage > 0) {
+      cards.push({
+        id: 'adjust-arrival-sleep',
+        title: 'Sleep at Local Time Tonight',
+        time: formatTime12Hour(userSettings.normalBedtime),
+        icon: '🌙',
+        color: '#1C5D74',
+        why: 'Your first night in the new timezone. Sleeping at normal local bedtime is recommended even if not tired.',
+        how: `Try to go to bed around ${formatTime12Hour(userSettings.normalBedtime)}. Keep room dark and cool. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
+          }`,
+        dateTime: moment.tz(`${arrivalDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+      });
+    }
   }
 
   // ============================================
   // VISUAL SEPARATOR - Place at end of arrival day (11:59 PM)
+  // Only show for full adjustment plans where we have a recurring routine
   // ============================================
 
-  const separatorTime = isLateNightArrival
-    ? landingMoment.clone().add(2, 'hours') // Place shortly after landing/bedtime
-    : landingMoment.clone().endOf('day');   // Normal placement at end of day
+  if (adjustmentStrategy.percentage > 0) {
+    const separatorTime = isLateNightArrival
+      ? landingMoment.clone().add(2, 'hours') // Place shortly after landing/bedtime
+      : landingMoment.clone().endOf('day');   // Normal placement at end of day
 
-  cards.push({
-    id: 'adjust-separator',
-    title: 'Daily Routine - Follow These Each Day >',
-    time: '',
-    icon: '',
-    color: '#E5E7EB',
-    why: '',
-    how: '',
-    isInfo: true,
-    dateTime: separatorTime.toISOString(),
-  });
+    cards.push({
+      id: 'adjust-separator',
+      title: 'Daily Routine - Follow These Each Day >',
+      time: '',
+      icon: '',
+      color: '#E5E7EB',
+      why: '',
+      how: '',
+      isInfo: true,
+      dateTime: separatorTime.toISOString(),
+    });
+  }
 
   // ============================================
   // RECURRING DAILY CARDS (for all following days)
@@ -1519,167 +1896,170 @@ function generateAdjustCards(
   // wakeHour is parsed from "HH:mm" string above
   const sunTitle = wakeHour >= 11 ? 'Seek Sunlight' : 'Seek Morning Sunlight';
 
-  cards.push({
-    id: 'adjust-morning-light-daily',
-    title: sunTitle,
-    time: formatTimeRange12Hour(userSettings.normalWakeTime, lightEndStr),
-    icon: '☀️',
-    color: '#FFF7C5',
-    why: `Most powerful tool for locking in ${trip.to} timezone. Light exposure helps stabilize your internal body clock. ${adjustmentStrategy.reason}`,
-    how: 'Try to get outside for 30-60 minutes in natural daylight. Even cloudy days work.',
-    dateTime: nextDayMorning.toISOString(),
-    isDailyRoutine: true,
-  });
-
-  // ADAPTIVE CAFFEINE LOGIC
-  // Rule: Stop caffeine 9 hours before bedtime
-  // Example: Bedtime 23:00 -> Cutoff 14:00 (2 PM)
-  // Example: Bedtime 02:00 -> Cutoff 17:00 (5 PM)
-  const bedMoment = moment(userSettings.normalBedtime, 'HH:mm');
-  // Handle crossing midnight for bedtime if needed (though usually simple subtraction works for time-of-day logic here)
-  // We just need a time string for the same day context
-  const caffeineCutoffMoment = bedMoment.clone().subtract(9, 'hours');
-  const caffeineCutoffStr = caffeineCutoffMoment.format('HH:mm');
-  const cutoffTimeDisplay = caffeineCutoffMoment.format('h:mm A');
-
-  // Determine if we should show "Caffeine OK"
-  // Logic: If Wake Time is BEFORE Cutoff, show window.
-  // If Wake Time is AFTER or SAME as Cutoff, skip "Caffeine OK" card.
-  // Compare minutes from midnight
-  const wakeMinutes = wakeHour * 60 + wakeMinute;
-  const cutoffMinutes = caffeineCutoffMoment.hour() * 60 + caffeineCutoffMoment.minute();
-
-  // Handle midnight wrap-around for cutoff (e.g. Bedtime 6 AM -> Cutoff 9 PM previous day? Or Bedtime 8 AM -> Cutoff 11 PM)
-  // Assuming normal bedtimes (e.g. 20:00 to 04:00).
-  // If simplified: usually bedtime is late, wake is early.
-  // If cutoffMinutes < wakeMinutes (and both are same day), then NO caffeine window.
-
-  // NOTE: Simple comparison assumes same day.
-  // If Bedtime is 01:00 (next day), subtract 9h = 16:00 (4 PM).
-  // If Wake is 12:00. 12:00 < 16:00. OK.
-  // If Bedtime is 22:00. Subtract 9h = 13:00 (1 PM).
-  // If Wake is 14:00. 14:00 > 13:00. No Caffeine.
-
-  // Case C: Wake 3 PM (15:00), Bedtime 2 AM (02:00 + 24h = 26:00). Cutoff 17:00.
-  // We need to handle the bedtime crossing midnight relative to wake time.
-  let adjustedCutoffMinutes = cutoffMinutes;
-  // If cutoff seems significantly earlier than wake (like 4 AM cutoff vs 7 AM wake), maybe it wrapped?
-  // But strictly, subtract 9h from bedtime.
-  // Let's assume standard day flow.
-  // If Bedtime is < WakeTime (e.g. Bed 02:00, Wake 10:00 - weird, but implies 02:00 is next day).
-  // If Bedtime < 12:00 (noon), assume it's next day (late night).
-  let effectiveBedMinutes = bedMoment.hour() * 60 + bedMoment.minute();
-  if (effectiveBedMinutes < 12 * 60) {
-    effectiveBedMinutes += 24 * 60; // Treat as next day
-  }
-  const effectiveCutoffMinutes = effectiveBedMinutes - (9 * 60);
-
-  if (wakeMinutes < effectiveCutoffMinutes) {
+  if (adjustmentStrategy.percentage > 0) {
     cards.push({
-      id: 'adjust-caffeine-ok',
-      title: 'Caffeine OK',
-      time: formatTimeRange12Hour(userSettings.normalWakeTime, caffeineCutoffStr),
-      icon: '☕',
-      color: '#92400e',
-      why: 'Strategic caffeine helps you stay alert during local daytime. Essential for adjustment.',
-      how: 'Coffee or tea during these hours. Helps fight off sleepiness and stay on local schedule.',
-      dateTime: nextDayMorning.clone().toISOString(),
+      id: 'adjust-morning-light-daily',
+      title: sunTitle,
+      time: formatTimeRange12Hour(userSettings.normalWakeTime, lightEndStr),
+      icon: '☀️',
+      color: '#FFF7C5',
+      why: `Most powerful tool for locking in ${trip.to} timezone. Light exposure helps stabilize your internal body clock.`,
+      how: 'Try to get outside for 30-60 minutes in natural daylight. Even cloudy days work.',
+      dateTime: nextDayMorning.toISOString(),
       isDailyRoutine: true,
     });
-  }
 
-  // Always show cutoff card (or "No Caffeine" if immediate)
-  const noCaffeineTimeDisplay = wakeMinutes >= effectiveCutoffMinutes
-    ? `Since waking (${formatTime12Hour(userSettings.normalWakeTime)})`
-    : `After ${cutoffTimeDisplay}`;
+    // ADAPTIVE CAFFEINE LOGIC
+    // Rule: Stop caffeine 9 hours before bedtime
+    // Example: Bedtime 23:00 -> Cutoff 14:00 (2 PM)
+    // Example: Bedtime 02:00 -> Cutoff 17:00 (5 PM)
+    const bedMoment = moment(userSettings.normalBedtime, 'HH:mm');
+    // Handle crossing midnight for bedtime if needed (though usually simple subtraction works for time-of-day logic here)
+    // We just need a time string for the same day context
+    const caffeineCutoffMoment = bedMoment.clone().subtract(9, 'hours');
+    const caffeineCutoffStr = caffeineCutoffMoment.format('HH:mm');
+    const cutoffTimeDisplay = caffeineCutoffMoment.format('h:mm A');
 
-  const noCaffeineTimeForSort = wakeMinutes >= effectiveCutoffMinutes
-    ? userSettings.normalWakeTime // Sort at wake time
-    : caffeineCutoffStr;          // Sort at cutoff time
+    // Determine if we should show "Caffeine OK"
+    // Logic: If Wake Time is BEFORE Cutoff, show window.
+    // If Wake Time is AFTER or SAME as Cutoff, skip "Caffeine OK" card.
+    // Compare minutes from midnight
+    const wakeMinutes = wakeHour * 60 + wakeMinute;
+    const cutoffMinutes = caffeineCutoffMoment.hour() * 60 + caffeineCutoffMoment.minute();
 
-  cards.push({
-    id: 'adjust-no-caffeine',
-    title: `Limit Caffeine After ${cutoffTimeDisplay}`,
-    time: noCaffeineTimeDisplay,
-    icon: '🚫',
-    color: '#64748b',
-    why: 'Caffeine stays in your system 6+ hours. Prioritizing sleep tonight will help you adjust faster.',
-    how: 'Switch to water, herbal tea, or decaf. Resist the temptation for afternoon coffee.',
-    dateTime: wakeMinutes >= effectiveCutoffMinutes
-      ? nextDayMorning.clone().toISOString() // same as wake time
-      : nextDayMorning.clone().hour(caffeineCutoffMoment.hour()).minute(caffeineCutoffMoment.minute()).toISOString(),
-    isDailyRoutine: true,
-  });
+    // Handle midnight wrap-around for cutoff (e.g. Bedtime 6 AM -> Cutoff 9 PM previous day? Or Bedtime 8 AM -> Cutoff 11 PM)
+    // Assuming normal bedtimes (e.g. 20:00 to 04:00).
+    // If simplified: usually bedtime is late, wake is early.
+    // If cutoffMinutes < wakeMinutes (and both are same day), then NO caffeine window.
 
-  if (direction === 'east') {
+    // NOTE: Simple comparison assumes same day.
+    // If Bedtime is 01:00 (next day), subtract 9h = 16:00 (4 PM).
+    // If Wake is 12:00. 12:00 < 16:00. OK.
+    // If Bedtime is 22:00. Subtract 9h = 13:00 (1 PM).
+    // If Wake is 14:00. 14:00 > 13:00. No Caffeine.
+
+    // Case C: Wake 3 PM (15:00), Bedtime 2 AM (02:00 + 24h = 26:00). Cutoff 17:00.
+    // We need to handle the bedtime crossing midnight relative to wake time.
+    let adjustedCutoffMinutes = cutoffMinutes;
+    // If cutoff seems significantly earlier than wake (like 4 AM cutoff vs 7 AM wake), maybe it wrapped?
+    // But strictly, subtract 9h from bedtime.
+    // Let's assume standard day flow.
+    // If Bedtime is < WakeTime (e.g. Bed 02:00, Wake 10:00 - weird, but implies 02:00 is next day).
+    // If Bedtime < 12:00 (noon), assume it's next day (late night).
+    let effectiveBedMinutes = bedMoment.hour() * 60 + bedMoment.minute();
+    if (effectiveBedMinutes < 12 * 60) {
+      effectiveBedMinutes += 24 * 60; // Treat as next day
+    }
+    const effectiveCutoffMinutes = effectiveBedMinutes - (9 * 60);
+
+    if (wakeMinutes < effectiveCutoffMinutes) {
+      cards.push({
+        id: 'adjust-caffeine-ok',
+        title: 'Caffeine OK',
+        time: formatTimeRange12Hour(userSettings.normalWakeTime, caffeineCutoffStr),
+        icon: '☕',
+        color: '#92400e',
+        why: 'Strategic caffeine helps you stay alert during local daytime. Essential for adjustment.',
+        how: 'Coffee or tea during these hours. Helps fight off sleepiness and stay on local schedule.',
+        dateTime: nextDayMorning.clone().toISOString(),
+        isDailyRoutine: true,
+      });
+    }
+
+    // Always show cutoff card (or "No Caffeine" if immediate)
+    const noCaffeineTimeDisplay = wakeMinutes >= effectiveCutoffMinutes
+      ? `Since waking (${formatTime12Hour(userSettings.normalWakeTime)})`
+      : `After ${cutoffTimeDisplay}`;
+
+    const noCaffeineTimeForSort = wakeMinutes >= effectiveCutoffMinutes
+      ? userSettings.normalWakeTime // Sort at wake time
+      : caffeineCutoffStr;          // Sort at cutoff time
+
     cards.push({
-      id: 'adjust-avoid-naps',
-      title: 'Avoid Long Naps',
-      time: '12:00 - 5:00 PM',
-      icon: '⏰',
-      color: '#ef4444',
-      why: 'Eastward travel often makes you drowsy in afternoon. Long naps can make it harder to sleep at night.',
-      how: 'If tired, try to limit naps to 20 minutes max. Set an alarm. Better: take a walk outside.',
-      dateTime: nextDayMorning.clone().hour(12).minute(0).toISOString(),
+      id: 'adjust-no-caffeine',
+      title: `Limit Caffeine After ${cutoffTimeDisplay}`,
+      time: noCaffeineTimeDisplay,
+      icon: '🚫',
+      color: '#64748b',
+      why: 'Caffeine stays in your system 6+ hours. Prioritizing sleep tonight will help you adjust faster.',
+      how: 'Switch to water, herbal tea, or decaf. Resist the temptation for afternoon coffee.',
+      dateTime: wakeMinutes >= effectiveCutoffMinutes
+        ? nextDayMorning.clone().toISOString() // same as wake time
+        : nextDayMorning.clone().hour(caffeineCutoffMoment.hour()).minute(caffeineCutoffMoment.minute()).toISOString(),
       isDailyRoutine: true,
     });
-  } else {
+
+    if (direction === 'east') {
+      cards.push({
+        id: 'adjust-avoid-naps',
+        title: 'Avoid Long Naps',
+        time: '12:00 - 5:00 PM',
+        icon: '⏰',
+        color: '#64748b',
+        why: 'Eastward travel often makes you drowsy in afternoon. Long naps can make it harder to sleep at night.',
+        how: 'If tired, try to limit naps to 20 minutes max. Set an alarm. Better: take a walk outside.',
+        dateTime: nextDayMorning.clone().hour(12).minute(0).toISOString(),
+        isDailyRoutine: true,
+      });
+    } else {
+      cards.push({
+        id: 'adjust-nap-ok',
+        title: 'Short Nap OK if Needed',
+        time: '1:00 - 3:00 PM',
+        icon: '💤',
+        color: '#8b5cf6',
+        why: 'Westward travel is easier. A brief nap won\'t hurt your adjustment.',
+        how: 'If tired, a 20-30 minute nap is fine. Set an alarm. Don\'t nap after 3 PM.',
+        dateTime: nextDayMorning.clone().hour(13).minute(0).toISOString(),
+        isDailyRoutine: true,
+      });
+    }
+
+    const localBedtime = userSettings.normalBedtime;
     cards.push({
-      id: 'adjust-nap-ok',
-      title: 'Short Nap OK if Needed',
-      time: '1:00 - 3:00 PM',
-      icon: '💤',
-      color: '#8b5cf6',
-      why: 'Westward travel is easier. A brief nap won\'t hurt your adjustment.',
-      how: 'If tired, a 20-30 minute nap is fine. Set an alarm. Don\'t nap after 3 PM.',
-      dateTime: nextDayMorning.clone().hour(13).minute(0).toISOString(),
+      id: 'adjust-sleep',
+      title: 'Sleep at Local Time',
+      time: `${formatTime12Hour(localBedtime)} - consistent schedule`,
+      icon: '🌙',
+      color: '#1C5D74',
+      why: `Your body is learning ${trip.to} time. A consistent sleep schedule helps lock it in.`,
+      how: `Try to go to bed around ${formatTime12Hour(localBedtime)} local time. Keep room dark and cool. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
+        }`,
+      dateTime: nextDayMorning.clone().hour(Number(localBedtime.split(':')[0])).minute(Number(localBedtime.split(':')[1])).toISOString(),
       isDailyRoutine: true,
     });
+
+    if (userSettings.useMelatonin) {
+      const melatoninTime = moment(localBedtime, 'HH:mm').subtract(30, 'minutes').format('HH:mm');
+      cards.push({
+        id: 'adjust-melatonin',
+        title: 'Melatonin',
+        time: `${formatTime12Hour(melatoninTime)} (optional)`,
+        icon: '💊',
+        color: '#8b5cf6',
+        why: 'Some travelers choose to use melatonin to signal to the body that it\'s time to sleep.',
+        how: 'If this is something you already use, you may choose to take a small amount 30 minutes before bed. Follow package instructions.',
+        dateTime: nextDayMorning.clone().subtract(30, 'minutes').hour(Number(melatoninTime.split(':')[0])).minute(Number(melatoninTime.split(':')[1])).toISOString(),
+        isDailyRoutine: true,
+      });
+    }
+
+    if (userSettings.useMagnesium) {
+      cards.push({
+        id: 'adjust-magnesium',
+        title: 'Magnesium',
+        time: 'Evening (optional)',
+        icon: '💊',
+        color: '#10b981',
+        why: 'Some travelers find magnesium helpful for relaxation.',
+        how: 'If you choose to use it, many people take magnesium glycinate with dinner.',
+        dateTime: nextDayMorning.clone().hour(19).minute(0).toISOString(),
+        isDailyRoutine: true,
+      });
+    }
   }
 
-  const localBedtime = userSettings.normalBedtime;
-  cards.push({
-    id: 'adjust-sleep',
-    title: 'Sleep at Local Time',
-    time: `${formatTime12Hour(localBedtime)} - consistent schedule`,
-    icon: '🌙',
-    color: '#6366f1',
-    why: `Your body is learning ${trip.to} time. A consistent sleep schedule helps lock it in.${nextTrip ? ` ${adjustmentStrategy.reason}` : ''
-      }`,
-    how: `Try to go to bed around ${formatTime12Hour(localBedtime)} local time. Keep room dark and cool. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
-      }`,
-    dateTime: nextDayMorning.clone().hour(Number(localBedtime.split(':')[0])).minute(Number(localBedtime.split(':')[1])).toISOString(),
-    isDailyRoutine: true,
-  });
 
-  if (userSettings.useMelatonin) {
-    const melatoninTime = moment(localBedtime, 'HH:mm').subtract(30, 'minutes').format('HH:mm');
-    cards.push({
-      id: 'adjust-melatonin',
-      title: 'Melatonin',
-      time: `${formatTime12Hour(melatoninTime)} (optional)`,
-      icon: '💊',
-      color: '#8b5cf6',
-      why: 'Some travelers choose to use melatonin to signal to the body that it\'s time to sleep.',
-      how: 'If this is something you already use, you may choose to take a small amount 30 minutes before bed. Follow package instructions.',
-      dateTime: nextDayMorning.clone().subtract(30, 'minutes').hour(Number(melatoninTime.split(':')[0])).minute(Number(melatoninTime.split(':')[1])).toISOString(),
-      isDailyRoutine: true,
-    });
-  }
-
-  if (userSettings.useMagnesium) {
-    cards.push({
-      id: 'adjust-magnesium',
-      title: 'Magnesium',
-      time: 'Evening (optional)',
-      icon: '💊',
-      color: '#10b981',
-      why: 'Some travelers find magnesium helpful for relaxation.',
-      how: 'If you choose to use it, many people take magnesium glycinate with dinner.',
-      dateTime: nextDayMorning.clone().hour(19).minute(0).toISOString(),
-      isDailyRoutine: true,
-    });
-  }
 
   // Sort all cards chronologically before returning
   cards.sort((a, b) => {
@@ -1688,8 +2068,26 @@ function generateAdjustCards(
     if (a.dateTime && !b.dateTime) return -1;
     if (!a.dateTime && b.dateTime) return 1;
     if (!a.dateTime && !b.dateTime) return 0;
+    if (!a.dateTime && !b.dateTime) return 0;
     return moment(a.dateTime).diff(moment(b.dateTime));
   });
+
+  // FINAL FILTER: Ensure no cards are after the Next Trip starts
+  if (nextTrip) {
+    // FIX: Parse next trip time in its ORIGIN timezone to get correct absolute time
+    // Otherwise it defaults to local system time (e.g. simulation time), which might be hours off.
+    const nextTripStart = moment.tz(
+      `${nextTrip.departDate} ${nextTrip.departTime}`,
+      'YYYY-MM-DD HH:mm',
+      getCityTimezone(nextTrip.from)
+    );
+
+    return cards.filter(c => {
+      // Keep info cards or cards without explicit time? Usually specific advice has dateTime.
+      if (!c.dateTime) return true;
+      return moment(c.dateTime).isBefore(nextTripStart);
+    });
+  }
 
   return cards;
 }

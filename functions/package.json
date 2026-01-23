@@ -1,6 +1,6 @@
 {
   "name": "functions",
-  "description": "Cloud Functions for Travel Buddy",
+  "description": "Cloud Functions for travel buddy",
   "scripts": {
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",

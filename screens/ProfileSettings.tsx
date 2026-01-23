@@ -127,10 +127,7 @@ export default function ProfileSettings() {
 
       <ScrollView style={styles.container}>
 
-        {/* General Disclaimer */}
-        <Text style={styles.disclaimerText}>
-          This app provides general travel and lifestyle guidance and does not offer medical advice. Always consult a qualified healthcare professional regarding supplements, sleep concerns, or health-related questions.
-        </Text>
+
 
         {/* Sleep Schedule Section */}
         <View style={styles.section}>
@@ -255,6 +252,20 @@ export default function ProfileSettings() {
           </View>
         </View>
 
+        {/* General Disclaimer */}
+        <View style={styles.disclaimerContainer}>
+          <Text style={styles.disclaimerText}>
+            This app provides general travel and lifestyle guidance and does not offer medical advice. Always consult a qualified healthcare professional regarding supplements, sleep concerns, or health-related questions.
+          </Text>
+        </View>
+
+        {/* Attribution / Credits */}
+        <View style={{ alignItems: 'center', marginBottom: 24 }}>
+          <Text style={{ fontFamily: 'Jua', fontSize: 12, color: '#94A3B8' }}>
+            Flight data provided by AeroDataBox
+          </Text>
+        </View>
+
         <View style={styles.spacer} />
       </ScrollView>
     </View>
@@ -373,5 +384,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     marginTop: 8,
     lineHeight: 18,
+    textAlign: 'left',
+  },
+  disclaimerContainer: {
+    backgroundColor: '#F1F5F9', // Subtle gray
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    marginHorizontal: 4,
   },
 });

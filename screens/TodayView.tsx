@@ -342,8 +342,8 @@ export default function TodayView({ navigation }: any) {
       return { bg: '#F1F5F9', text: '#1E293B', label: '#475569' };
     }
 
-    // Sleep / Rest / Nap - teal theme
-    if (title.includes("sleep") || title.includes("rest") || title.includes("nap")) {
+    // Sleep / Rest / Nap / Head to Bed - teal theme (but NOT "Avoid Naps")
+    if ((title.includes("sleep") || title.includes("rest") || title.includes("nap") || title.includes("head to bed")) && !(title.includes("avoid") && title.includes("nap"))) {
       return { bg: '#1C5D74', text: '#FFFFFF', label: '#c1e0ee' };
     }
 
@@ -373,13 +373,18 @@ export default function TodayView({ navigation }: any) {
     }
 
     // Stay Awake
-    if (title.includes("stay awake") || title.includes("awake")) {
-      return { bg: '#F3F0ED', text: '#000000', label: '#757474' };
+    if (title.includes("stay awake") || title.includes("awake") || title.includes("start your day")) {
+      return { bg: '#FFF7C5', text: '#000000', label: '#F6CB60' };
     }
 
     // Stay Hydrated
     if (title.includes("hydrate") || title.includes("hydration")) {
       return { bg: '#DBEAFE', text: '#446084', label: '#3567a4' };
+    }
+
+    // Managing Energy - peachy pastel
+    if (title.includes("managing energy") || title.includes("manage energy")) {
+      return { bg: '#FFD4C4', text: '#5C3A2E', label: '#8B5A3C' };
     }
 
     // Avoid / Nap warnings
@@ -400,7 +405,7 @@ export default function TodayView({ navigation }: any) {
     }
 
     // Sleep / Rest / Nap
-    if (t.includes('sleep') || t.includes('rest') || t.includes('nap')) {
+    if (t.includes('sleep') || t.includes('rest') || t.includes('nap') || t.includes('bed')) {
       return 'moon';
     }
 
@@ -425,7 +430,7 @@ export default function TodayView({ navigation }: any) {
     }
 
     // Stay Awake
-    if (t.includes('stay awake') || t.includes('awake')) {
+    if (t.includes('stay awake') || t.includes('awake') || t.includes('start your day')) {
       return 'eye';
     }
 

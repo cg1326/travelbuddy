@@ -45,6 +45,8 @@ interface JetLagPlan {
     travel: Phase;
     adjust: Phase;
   };
+  strategy?: 'stay_home' | 'adjust';
+  suppressPreparePhase?: boolean;
 }
 
 interface Trip {
@@ -183,14 +185,14 @@ export default function TripDetail({ route, navigation }: any) {
     },
 
     "StayAwake": {
-      background: "#F3F0ED",        // Orange background
+      background: "#FFF7C5",        // Pale yellow background (Matches Sunlight)
       titleColor: "#000000",
       timeColor: "#000000",
       textColor: "#000000",
-      labelColor: "#757474ff",         // Dark brown labels (slightly lighter)
-      skipBg: "#E5E4E4",             // Light orange skip
-      skipText: "#1E293B",
-      doneBg: "#B7B5B5",             // Grey done button
+      labelColor: "#F6CB60",        // Golden brown label
+      skipBg: "#FEFCE8",            // Off-white skip button
+      skipText: "#000000",
+      doneBg: "#F6CB60",            // Pastel yellow done button
       doneText: "#FFFFFF",
     },
 
@@ -243,6 +245,18 @@ export default function TripDetail({ route, navigation }: any) {
       doneText: "#ffffffff",
     },
 
+    "ManagingEnergy": {
+      background: "#FFD4C4",
+      titleColor: "#5C3A2E",
+      timeColor: "#5C3A2E",
+      textColor: "#5C3A2E",
+      labelColor: "#8B5A3C",
+      skipBg: "#FFE8DC",
+      skipText: "#5C3A2E",
+      doneBg: "#E8A890",
+      doneText: "#FFFFFF",
+    },
+
     // 👁 Default fallback (stay awake, etc.)
     "Default": {
       background: "#F1F5F9",
@@ -269,8 +283,8 @@ export default function TripDetail({ route, navigation }: any) {
     if (t.includes("you've arrived") || t.includes("arrived"))
       return CARD_THEMES.Default;
 
-    // Sleep / Rest / Nap
-    if (t.includes("sleep") || t.includes("rest") || t.includes("nap"))
+    // Sleep / Rest / Nap / Head to Bed (but NOT "Avoid Naps")
+    if ((t.includes("sleep") || t.includes("rest") || t.includes("nap") || t.includes("head to bed")) && !(t.includes("avoid") && t.includes("nap")))
       return CARD_THEMES.Sleep;
 
     // Caffeine OK
@@ -295,8 +309,12 @@ export default function TripDetail({ route, navigation }: any) {
       return CARD_THEMES.Sunlight;
 
     // Stay Awake
-    if (t.includes("stay awake") || t.includes("awake"))
+    if (t.includes("stay awake") || t.includes("awake") || t.includes("start your day"))
       return CARD_THEMES.StayAwake;
+
+    // Managing Energy - peachy pastel
+    if (t.includes("managing energy") || t.includes("manage energy"))
+      return CARD_THEMES.ManagingEnergy;
 
     // Stay Hydrated
     if (t.includes("hydrate") || t.includes("hydration"))
@@ -313,8 +331,8 @@ export default function TripDetail({ route, navigation }: any) {
       return 'send';
     }
 
-    // Sleep / Rest / Nap
-    if (t.includes('sleep') || t.includes('rest') || t.includes('nap')) {
+    // Sleep / Rest / Nap / Bed
+    if (t.includes('sleep') || t.includes('rest') || t.includes('nap') || t.includes('bed')) {
       return 'moon';
     }
 
@@ -339,7 +357,7 @@ export default function TripDetail({ route, navigation }: any) {
     }
 
     // Stay Awake
-    if (t.includes('stay awake') || t.includes('awake')) {
+    if (t.includes('stay awake') || t.includes('awake') || t.includes('start your day')) {
       return 'eye';
     }
 
@@ -381,13 +399,22 @@ export default function TripDetail({ route, navigation }: any) {
   // FIX #1: Get phase header text without single-date filtering
   const getPhaseHeaderText = () => {
     if (activePhase === 'prepare') {
-      return `Preparation Phase – ${currentPhase.dateRange}`;
+      return tripPlan.strategy === 'stay_home'
+        ? `Pre-Trip – ${currentPhase.dateRange}`
+        : `Preparation Phase – ${currentPhase.dateRange}`;
     }
     if (activePhase === 'travel') {
+      if (tripPlan.strategy === 'stay_home') {
+        // Return a broader range if merged
+        // Removed - just use standard Travel Day label
+      }
       const isSingleDate = !currentPhase.dateRange.includes('-');
       return `Travel ${isSingleDate ? 'Day' : 'Days'} – ${currentPhase.dateRange}`;
     }
-    return `Adjustment Phase – ${currentPhase.dateRange}`;
+    // Adjust
+    return tripPlan.strategy === 'stay_home'
+      ? `Trip Schedule – ${currentPhase.dateRange}`
+      : `Adjustment Phase – ${currentPhase.dateRange}`;
   };
 
   // FIX #2: Filter cards based on whether showing arrival day or daily routine
@@ -396,6 +423,30 @@ export default function TripDetail({ route, navigation }: any) {
 
     if (activePhase !== 'adjust') {
       cards = currentPhase.cards;
+
+      // MERGE LOGIC: If strategy is 'stay_home' and we are looking at 'travel' phase,
+      // append the 'adjust' phase cards to the end of the list.
+      if (tripPlan.strategy === 'stay_home' && activePhase === 'travel') {
+        // Sort travel cards first
+        const travelCards = [...cards].sort((a, b) => {
+          if (!a.dateTime || !b.dateTime) return 0;
+          return moment(a.dateTime).diff(moment(b.dateTime));
+        });
+
+        // Get adjust cards (using the same logic as the else block below ideally, but simplified)
+        // We can just grab raw cards, but we might want to filter headers?
+        // Let's grab raw for now, assuming generateAdjustCards does good work.
+        // Actually, let's filter out the "Arrival Day" header if it's redundant with "Travel Day".
+        const adjustCards = tripPlan.phases.adjust.cards.filter(c =>
+          !c.title.includes('Arrival Day') // Avoid double headers if possible
+        ).sort((a, b) => {
+          if (!a.dateTime || !b.dateTime) return 0;
+          return moment(a.dateTime).diff(moment(b.dateTime));
+        });
+
+        return [...travelCards, ...adjustCards];
+      }
+
       return cards.sort((a, b) => {
         if (!a.dateTime || !b.dateTime) return 0;
         return moment(a.dateTime).diff(moment(b.dateTime));
@@ -579,27 +630,58 @@ export default function TripDetail({ route, navigation }: any) {
 
       {/* ────── Phase Tabs (Prepare / Travel / Adjust) ────── */}
       <View style={styles.phaseTabs}>
-        {['prepare', 'travel', 'adjust'].map((phaseKey) => (
-          <TouchableOpacity
-            key={phaseKey}
-            style={[styles.phaseTab, activePhase === phaseKey && styles.phaseTabActive]}
-            onPress={() => setActivePhase(phaseKey as any)}>
-            <Text
-              style={[
-                styles.phaseTabText,
-                activePhase === phaseKey && styles.phaseTabTextActive,
-              ]}>
-              {phaseKey === 'prepare' ? 'Prepare' : phaseKey === 'travel' ? 'Travel Day' : 'Adjust'}
-            </Text>
-            <Text
-              style={[
-                styles.phaseTabDate,
-                activePhase === phaseKey && styles.phaseTabDateActive,
-              ]}>
-              {tripPlan.phases[phaseKey as keyof typeof tripPlan.phases].dateRange}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {['prepare', 'travel', 'adjust']
+          .filter(phaseKey => {
+            // For Stay Home trips, hide 'prepare' tab to simplify structure (User feedback)
+            if (tripPlan.strategy === 'stay_home' && phaseKey === 'prepare') return false;
+
+            // Hide 'prepare' tab if it overlaps with previous trip's adjust phase
+            if (tripPlan.suppressPreparePhase && phaseKey === 'prepare') return false;
+
+            // NEW: For Stay Home trips, ALSO hide 'adjust' tab, because we will merge it into 'travel'
+            if (tripPlan.strategy === 'stay_home' && phaseKey === 'adjust') return false;
+
+            return true;
+          })
+          .map((phaseKey) => {
+            // Dynamic Labeling
+            let label = '';
+            if (phaseKey === 'prepare') {
+              label = tripPlan.strategy === 'stay_home' ? 'Pre-Trip' : 'Prepare';
+            } else if (phaseKey === 'travel') {
+              // If we merged adjust into travel, call it "Trip Itinerary" or "Trip Plan"
+              label = 'Travel Day';
+            } else if (phaseKey === 'adjust') {
+              label = tripPlan.strategy === 'stay_home' ? 'Trip Schedule' : 'Adjust';
+            }
+
+            return (
+              <TouchableOpacity
+                key={phaseKey}
+                style={[styles.phaseTab, activePhase === phaseKey && styles.phaseTabActive]}
+                onPress={() => {
+                  // For Stay Home trips with only one tab, don't allow switching
+                  if (tripPlan.strategy === 'stay_home') return;
+                  setActivePhase(phaseKey as any);
+                }}
+                disabled={tripPlan.strategy === 'stay_home'}>
+                <Text
+                  style={[
+                    styles.phaseTabText,
+                    activePhase === phaseKey && styles.phaseTabTextActive,
+                  ]}>
+                  {label}
+                </Text>
+                <Text
+                  style={[
+                    styles.phaseTabDate,
+                    activePhase === phaseKey && styles.phaseTabDateActive,
+                  ]}>
+                  {tripPlan.phases[phaseKey as keyof typeof tripPlan.phases].dateRange}
+                </Text>
+              </TouchableOpacity>
+            )
+          })}
       </View>
 
       {/* ────── Reset Button (for Prepare/Adjust) ────── */}
@@ -613,12 +695,13 @@ export default function TripDetail({ route, navigation }: any) {
         </View>
       )}
 
+      {/* ────── Sticky Section Header (navy bar) ────── */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionHeaderText}>{getPhaseHeaderText()}</Text>
+      </View>
+
       {/* ────── Cards Section ────── */}
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Single section header (navy bar) */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionHeaderText}>{getPhaseHeaderText()}</Text>
-        </View>
 
         {/* ────── Reset Button (for Travel Day - after flight card) ────── */}
         {activePhase === 'travel' && hasAnyStatusChanges && (
@@ -741,7 +824,7 @@ export default function TripDetail({ route, navigation }: any) {
                 {status === 'active' && expandedCards.has(card.id) && (
                   <View style={styles.cardExpanded}>
                     <Text style={[styles.cardExpandedLabel, { color: theme.labelColor } as TextStyle]}>
-                      Why this helps:
+                      WHY THIS HELPS:
                     </Text>
                     <Text style={[styles.cardExpandedText, { color: theme.textColor } as TextStyle]}>
                       {card.why}
@@ -750,7 +833,7 @@ export default function TripDetail({ route, navigation }: any) {
                     <Text style={[styles.cardExpandedLabel, { color: theme.labelColor } as TextStyle]}>
                       {(card.title.toLowerCase().includes('melatonin') || card.title.toLowerCase().includes('magnesium'))
                         ? 'OPTIONAL GUIDANCE:'
-                        : 'How to do it:'}
+                        : 'HOW TO DO IT:'}
                     </Text>
                     <Text style={[styles.cardExpandedText, { color: theme.textColor } as TextStyle]}>
                       {card.how}
@@ -851,11 +934,10 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     backgroundColor: '#1E3A5F', // Navy banner
     paddingVertical: 12,
     paddingHorizontal: 16,
-    marginVertical: 8,
   },
   sectionHeaderText: { fontFamily: 'Jua', color: '#FFFFFF', fontSize: 16 },
 
-  cardContainer: { marginBottom: 12, paddingHorizontal: 16 },
+  cardContainer: { marginTop: 8, marginBottom: 12, paddingHorizontal: 16 },
   card: { borderRadius: 12, padding: 16 },
   cardInfo: {
     paddingTop: 20,

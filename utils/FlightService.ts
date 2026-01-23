@@ -31,8 +31,36 @@ const PROD_FUNCTIONS_URL = `https://${REGION}-${PROJECT_ID}.cloudfunctions.net/l
 
 // Set this to true if you are running 'firebase emulators:start' locally
 const USE_EMULATOR = false;
+// Set this to true to save API credits during development
+const USE_MOCK_DATA = false;
 
 export const lookupFlight = async (flightNumber: string, date?: string): Promise<FlightResult> => {
+    // 1. Mock Mode Check (Saves Credits)
+    if (USE_MOCK_DATA) {
+        console.log("⚠️ Using MOCK data for flight lookup");
+        return new Promise((resolve) => {
+            setTimeout(() => {
+                resolve({
+                    flightNumber: flightNumber.toUpperCase(),
+                    airline: "Mock Airlines",
+                    departure: {
+                        airport: "New York (JFK)",
+                        iata: "JFK",
+                        time: date ? `${date}T08:00:00` : new Date().toISOString(),
+                        timezone: "America/New_York"
+                    },
+                    arrival: {
+                        airport: "London (LHR)",
+                        iata: "LHR",
+                        time: date ? `${date}T20:00:00` : new Date().toISOString(),
+                        timezone: "Europe/London"
+                    },
+                    status: "Scheduled"
+                });
+            }, 1000); // Simulate network delay
+        });
+    }
+
     const url = USE_EMULATOR ? LOCAL_FUNCTIONS_URL : PROD_FUNCTIONS_URL;
 
     try {

@@ -1,35 +1,10 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { generateJetLagPlan, getDefaultUserSettings } from '../utils/jetLagAlgorithm';
+import { generateJetLagPlan, getDefaultUserSettings, Trip, FlightSegment, Connection } from '../utils/jetLagAlgorithm';
 import moment from 'moment';
 import { startPersistentNotificationUpdater, stopPersistentNotification } from '../utils/notificationScheduler';
 
-interface Connection {
-  city: string;
-  duration: string;
-}
 
-interface FlightSegment {
-  from: string;
-  to: string;
-  departDate: string;
-  departTime: string;
-  arriveDate: string;
-  arriveTime: string;
-}
-
-interface Trip {
-  id: string;
-  from: string;
-  to: string;
-  departDate: string;
-  departTime: string;
-  arriveDate: string;
-  arriveTime: string;
-  hasConnections: boolean;
-  segments: FlightSegment[];
-  connections: Connection[];
-}
 
 interface Card {
   id: string;

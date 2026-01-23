@@ -92,18 +92,29 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
         (c: any) => c.isDailyRoutine && c.dateTime
       );
 
-      const nextDay = arriveDate.clone().add(1, 'days');
       const durationDays = jetLagPlan.phases.adjust.durationDays || 4;
 
-      for (let i = 0; i < durationDays - 1; i++) {
-        const currentRoutineDay = nextDay.clone().add(i, 'days');
+      // FIX: If arrived early morning (e.g. < 10 AM), start routine TODAY, not tomorrow.
+      const arriveHour = arriveDate.hours();
+      let startRoutineDate = arriveDate.clone().add(1, 'days'); // Default to tomorrow
+
+      if (arriveHour < 10) {
+        startRoutineDate = arriveDate.clone();
+      }
+
+      for (let i = 0; i < durationDays; i++) {
+        const currentRoutineDay = startRoutineDate.clone().add(i, 'days');
         for (const card of dailyRoutineCards) {
           const cardTime = moment(card.dateTime);
           const routineTime = currentRoutineDay.clone()
             .hours(cardTime.hours())
             .minutes(cardTime.minutes());
 
-          processCard(card, routineTime);
+          // Only add if this specific routine time is actually in the future relative to arrival
+          // e.g. If landed at 9 AM, and routine is 7 AM, skip today's 7 AM card.
+          if (routineTime.isAfter(arriveDate)) {
+            processCard(card, routineTime);
+          }
         }
       }
     }
@@ -276,7 +287,7 @@ async function scheduleIOSNotifications(plans: any[], cardStatuses: Record<strin
         {
           id: deterministicId, // <--- CRITICAL FIX: Deterministic ID
           title: card.title,
-          body: card.time ? `${card.time}: ${card.why || ''}` : card.why,
+          body: card.time || '', // Show only label/time, no explanation
           ios: {
             sound: 'default',
             interruptionLevel: 'active', // 'active' lights up screen

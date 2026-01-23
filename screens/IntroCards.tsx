@@ -4,17 +4,15 @@ import {
     Text,
     StyleSheet,
     FlatList,
-    Dimensions,
     Image,
     TouchableOpacity,
     StatusBar,
-    SafeAreaView
+    SafeAreaView,
+    useWindowDimensions
 } from 'react-native';
 import { usePlans } from '../context/PlanContext';
 import moment from 'moment-timezone';
 import { CommonActions } from '@react-navigation/native';
-
-const { width, height } = Dimensions.get('window');
 
 // INTRO CARD CONFIGURATION
 const SLIDES = [
@@ -22,42 +20,49 @@ const SLIDES = [
         id: 'start',
         image: require('../assets/images/Intro Card 0a.png'),
         type: 'start',
-        useDarkDots: false // White dots
+        useDarkDots: false,
+        backgroundColor: '#DCF0FA' // Sky blue
     },
     {
         id: '0',
         image: require('../assets/images/Intro Card 1a.png'),
         type: 'step',
-        useDarkDots: false // White dots
+        useDarkDots: true,
+        backgroundColor: '#FCF9EE' // Cream
     },
     {
         id: '1',
         image: require('../assets/images/Intro Card 2a.png'),
         type: 'step',
-        useDarkDots: true // "One way..." -> Grey dots
+        useDarkDots: true,
+        backgroundColor: '#FCF9EE' // Cream
     },
     {
         id: '2',
         image: require('../assets/images/Intro Card 3a.png'),
         type: 'step',
-        useDarkDots: true // "Your sleep..." -> Grey dots
+        useDarkDots: true,
+        backgroundColor: '#FCF9EE' // Cream
     },
     {
         id: '3',
         image: require('../assets/images/Intro Card 4a.png'),
         type: 'step',
-        useDarkDots: false // White dots
+        useDarkDots: false,
+        backgroundColor: '#DCF0FA' // Sky blue
     },
     {
         id: '4',
         image: require('../assets/images/Intro Card 5a.png'),
         type: 'end',
         isLast: true,
-        useDarkDots: true // "Let's get going" -> Grey dots
+        useDarkDots: true,
+        backgroundColor: '#FFFFFF' // White
     },
 ];
 
 export default function IntroCards({ navigation, onFinish }: { navigation: any, onFinish: () => void }) {
+    const { width, height } = useWindowDimensions();
     const [currentIndex, setCurrentIndex] = useState(0);
     const flatListRef = useRef<FlatList>(null);
     const { addPlan } = usePlans();
@@ -74,6 +79,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
     };
 
     const handleCreatePlan = () => {
+        onFinish();
         navigation.navigate('AddPlanName');
     };
 
@@ -132,8 +138,12 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
 
     const renderItem = ({ item, index }: { item: any, index: number }) => {
         return (
-            <View style={styles.slide}>
-                <Image source={item.image} style={styles.image} resizeMode="contain" />
+            <View style={[styles.slide, { width, height, backgroundColor: item.backgroundColor || '#FFFFFF' }]}>
+                <Image
+                    source={item.image}
+                    style={[styles.image, { width, height }]}
+                    resizeMode="contain"
+                />
 
                 {/* === SLIDE 0: INTRO START === */}
                 {item.type === 'start' && (
@@ -165,7 +175,10 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                 {item.type === 'end' && (
                     <>
                         {/* GROUP 1: ORANGE BUTTON (High up) */}
-                        <View style={styles.orangeButtonContainer}>
+                        <View style={[
+                            styles.orangeButtonContainer,
+                            { bottom: height > 800 ? 210 : 290 }
+                        ]}>
                             <TouchableOpacity
                                 style={[styles.primaryButton, styles.orangeButton]}
                                 onPress={handleCreatePlan}
@@ -260,24 +273,21 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
     },
     slide: {
-        width: width,
-        height: height,
         justifyContent: 'center',
         alignItems: 'center',
         position: 'relative',
         backgroundColor: '#FFFFFF',
     },
     image: {
-        width: width,
-        height: '100%',
         position: 'absolute',
         top: 0,
+        left: 0,
     },
 
     // Standard Container (Start + Steps)
     buttonContainer: {
         position: 'absolute',
-        bottom: 80,
+        bottom: 80, // RESTORED TO ORIGINAL
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
@@ -288,7 +298,6 @@ const styles = StyleSheet.create({
     // 1. Orange Button (Higher)
     orangeButtonContainer: {
         position: 'absolute',
-        bottom: 290, // Pushed up further to sit closer to "Let's get going"
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
@@ -297,11 +306,11 @@ const styles = StyleSheet.create({
     // 2. Sample Plan Group (Lower, aligned with standard button area)
     sampleContainer: {
         position: 'absolute',
-        bottom: 80, // Aligns with 'Next' button
+        bottom: 80, // RESTORED TO ORIGINAL
         width: '100%',
         paddingHorizontal: 30,
         alignItems: 'center',
-        gap: 12, // Gap between Text and Button
+        gap: 12, // RESTORED TO ORIGINAL
     },
 
     textBlock: {
