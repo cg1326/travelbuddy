@@ -935,7 +935,7 @@ function generatePrepareCards(
           ? (shiftMinutes > 0 ? `${shiftHours}h ${shiftMinutes}m` : `${shiftHours} hour${shiftHours > 1 ? 's' : ''}`)
           : `${shiftMinutes} minutes`;
 
-        const dayLabel = effectivePrepDays > 1 ? ` - Day ${dayOffset + 1}` : '';
+        const dayLabel = effectivePrepDays > 1 ? ` - ${moment(currentDate).format('MMM D')}` : '';
         const progressText = effectivePrepDays > 1 && dayOffset < effectivePrepDays - 1
           ? ` Tomorrow you'll shift another ${Math.round(shiftPerDay * 60)} minutes.`
           : '';
@@ -999,7 +999,7 @@ function generatePrepareCards(
           ? (shiftMinutes > 0 ? `${shiftHours}h ${shiftMinutes}m` : `${shiftHours} hour${shiftHours > 1 ? 's' : ''}`)
           : `${shiftMinutes} minutes`;
 
-        const dayLabel = effectivePrepDays > 1 ? ` - Day ${dayOffset + 1}` : '';
+        const dayLabel = effectivePrepDays > 1 ? ` - ${moment(currentDate).format('MMM D')}` : '';
         const progressText = effectivePrepDays > 1 && dayOffset < effectivePrepDays - 1
           ? ` Tomorrow you'll shift another ${Math.round(shiftPerDay * 60)} minutes.`
           : '';
