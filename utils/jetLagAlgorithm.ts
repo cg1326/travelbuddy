@@ -903,26 +903,43 @@ function generatePrepareCards(
 
     const lightTime = formatTimeRange12Hour(wakeTimeStr, lightEndStr);
 
-
-    cards.push({
-      id: 'prep-light',
-      title: 'Seek Morning Light',
-      time: lightTime,
-      icon: '☀️',
-      color: '#fbbf24',
-      why: `Traveling ${hoursDiff} hours east to ${trip.to}. Morning light is commonly used to advance the body clock.`,
-      how: 'Try to get bright light exposure within 2 hours of waking. Go outside for 30-60 minutes if possible.',
-      dateTime: moment.tz(`${startDate} ${wakeTimeStr}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
-    });
-
     // Calculate progressive sleep shift
     const shiftPerDay = calculatePrepSleepShift(hoursDiff, effectivePrepDays);
 
-    // Generate sleep cards for each prep day with progressive shifts
-    if (effectivePrepDays > 0) {
-      for (let dayOffset = 0; dayOffset < effectivePrepDays; dayOffset++) {
+    // Generate cards for each prep day (or at least 1 day if effectivePrepDays is 0)
+    const daysToGenerate = Math.max(effectivePrepDays, 1);
+
+    for (let dayOffset = 0; dayOffset < daysToGenerate; dayOffset++) {
+      const currentDate = moment(startDate).add(dayOffset, 'days').format('YYYY-MM-DD');
+      const dayLabel = daysToGenerate > 1 ? ` - ${moment(currentDate).format('MMM D')}` : '';
+
+      // Morning light card for this day
+      cards.push({
+        id: `prep-light-day${dayOffset + 1}`,
+        title: `Seek Morning Light${dayLabel}`,
+        time: lightTime,
+        icon: '☀️',
+        color: '#fbbf24',
+        why: `Traveling ${hoursDiff} hours east to ${trip.to}. Morning light is commonly used to advance the body clock.`,
+        how: 'Try to get bright light exposure within 2 hours of waking. Go outside for 30-60 minutes if possible.',
+        dateTime: moment.tz(`${currentDate} ${wakeTimeStr}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+      });
+
+      // Avoid evening light card for this day
+      cards.push({
+        id: `prep-avoid-evening-light-day${dayOffset + 1}`,
+        title: `Avoid Bright Light${dayLabel}`,
+        time: '8:00 PM onwards',
+        icon: '🌙',
+        color: '#64748b',
+        why: 'Evening light can delay your clock - opposite of what helps for eastward travel.',
+        how: 'Consider dimming lights in your home. Use warm/amber lighting if available.',
+        dateTime: moment.tz(`${currentDate} 20:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+      });
+
+      // Sleep card for this day (only if effectivePrepDays > 0)
+      if (effectivePrepDays > 0 && dayOffset < effectivePrepDays) {
         const cumulativeShift = shiftPerDay * (dayOffset + 1);
-        const currentDate = moment(startDate).add(dayOffset, 'days').format('YYYY-MM-DD');
 
         // Calculate shifted bedtime for this specific day
         const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
@@ -935,7 +952,6 @@ function generatePrepareCards(
           ? (shiftMinutes > 0 ? `${shiftHours}h ${shiftMinutes}m` : `${shiftHours} hour${shiftHours > 1 ? 's' : ''}`)
           : `${shiftMinutes} minutes`;
 
-        const dayLabel = effectivePrepDays > 1 ? ` - ${moment(currentDate).format('MMM D')}` : '';
         const progressText = effectivePrepDays > 1 && dayOffset < effectivePrepDays - 1
           ? ` Tomorrow you'll shift another ${Math.round(shiftPerDay * 60)} minutes.`
           : '';
@@ -953,40 +969,34 @@ function generatePrepareCards(
       }
     }
 
-    cards.push({
-      id: 'prep-avoid-evening-light',
-      title: 'Avoid Bright Light',
-      time: '8:00 PM onwards',
-      icon: '🌙',
-      color: '#64748b',
-      why: 'Evening light can delay your clock - opposite of what helps for eastward travel.',
-      how: 'Consider dimming lights in your home. Use warm/amber lighting if available.',
-      dateTime: moment.tz(`${startDate} 20:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
-    });
-
   } else {
     const lightTime = '6:00 - 8:00 PM';
-
-    cards.push({
-      id: 'prep-light',
-      title: 'Seek Evening Light',
-      time: lightTime,
-      icon: '🌅',
-      color: '#f97316',
-      why: `Traveling ${hoursDiff} hours west to ${trip.to}. Evening light is commonly used to delay the body clock.`,
-
-      how: 'Try to get bright light exposure in the evening. Go outside or use bright indoor lighting.',
-      dateTime: moment.tz(`${startDate} 18:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
-    });
 
     // Calculate progressive sleep shift
     const shiftPerDay = calculatePrepSleepShift(hoursDiff, effectivePrepDays);
 
-    // Generate sleep cards for each prep day with progressive shifts
-    if (effectivePrepDays > 0) {
-      for (let dayOffset = 0; dayOffset < effectivePrepDays; dayOffset++) {
+    // Generate cards for each prep day (or at least 1 day if effectivePrepDays is 0)
+    const daysToGenerate = Math.max(effectivePrepDays, 1);
+
+    for (let dayOffset = 0; dayOffset < daysToGenerate; dayOffset++) {
+      const currentDate = moment(startDate).add(dayOffset, 'days').format('YYYY-MM-DD');
+      const dayLabel = daysToGenerate > 1 ? ` - ${moment(currentDate).format('MMM D')}` : '';
+
+      // Evening light card for this day
+      cards.push({
+        id: `prep-light-day${dayOffset + 1}`,
+        title: `Seek Evening Light${dayLabel}`,
+        time: lightTime,
+        icon: '🌅',
+        color: '#f97316',
+        why: `Traveling ${hoursDiff} hours west to ${trip.to}. Evening light is commonly used to delay the body clock.`,
+        how: 'Try to get bright light exposure in the evening. Go outside or use bright indoor lighting.',
+        dateTime: moment.tz(`${currentDate} 18:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+      });
+
+      // Sleep card for this day (only if effectivePrepDays > 0)
+      if (effectivePrepDays > 0 && dayOffset < effectivePrepDays) {
         const cumulativeShift = shiftPerDay * (dayOffset + 1);
-        const currentDate = moment(startDate).add(dayOffset, 'days').format('YYYY-MM-DD');
 
         // Calculate shifted bedtime for this specific day
         const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
@@ -999,7 +1009,6 @@ function generatePrepareCards(
           ? (shiftMinutes > 0 ? `${shiftHours}h ${shiftMinutes}m` : `${shiftHours} hour${shiftHours > 1 ? 's' : ''}`)
           : `${shiftMinutes} minutes`;
 
-        const dayLabel = effectivePrepDays > 1 ? ` - ${moment(currentDate).format('MMM D')}` : '';
         const progressText = effectivePrepDays > 1 && dayOffset < effectivePrepDays - 1
           ? ` Tomorrow you'll shift another ${Math.round(shiftPerDay * 60)} minutes.`
           : '';
