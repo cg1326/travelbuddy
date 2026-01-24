@@ -177,7 +177,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                         {/* GROUP 1: ORANGE BUTTON (High up) */}
                         <View style={[
                             styles.orangeButtonContainer,
-                            { bottom: height > 800 ? 210 : 290 }
+                            { bottom: height > 800 ? 290 : 250 }
                         ]}>
                             <TouchableOpacity
                                 style={[styles.primaryButton, styles.orangeButton]}
