@@ -1002,6 +1002,17 @@ function generatePrepareCards(
         const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
         const shiftedBedtime = normalBedtimeMoment.clone().add(cumulativeShift * 60, 'minutes').format('HH:mm');
 
+        // Check for midnight crossing (Westward shifts later)
+        // If normal is PM (>=18) and shifted is AM (<12), assume it's the next day
+        const normalH = parseInt(userSettings.normalBedtime.split(':')[0], 10);
+        const shiftedH = parseInt(shiftedBedtime.split(':')[0], 10);
+        let dateOffset = 0;
+        if (normalH >= 18 && shiftedH < 12) {
+          dateOffset = 1;
+        }
+        // Use the corrected date for dateTime ensures correct sorting (after evening light)
+        const sortableDate = moment(currentDate).add(dateOffset, 'days').format('YYYY-MM-DD');
+
         // Format shift amount for display
         const shiftHours = Math.floor(cumulativeShift);
         const shiftMinutes = Math.round((cumulativeShift - shiftHours) * 60);
@@ -1021,7 +1032,7 @@ function generatePrepareCards(
           color: '#1C5D74',
           why: `Start shifting your sleep ${shiftText} later than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime.${progressText}`,
           how: 'Try to stay up later than usual. Keep lights bright in the evening.',
-          dateTime: moment.tz(`${currentDate} ${shiftedBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+          dateTime: moment.tz(`${sortableDate} ${shiftedBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
         });
       }
     }
@@ -1427,7 +1438,7 @@ function generateTravelCards(
               cards.push({
                 id: `awake-pre-${segment.from}-${segment.to}-stayhome`,
                 title: `Stay Awake`,
-                time: `Until ${sleepStartStr}`,
+                time: `Until ${sleepStartStr} (${originCity} Time)`,
                 icon: '👁️',
                 color: '#FFF7C5',
                 why: `It's still daytime in ${originCity}. Wait until ${sleepStartStr} to sleep.`,
@@ -1442,7 +1453,7 @@ function generateTravelCards(
               cards.push({
                 id: `awake-post-${segment.from}-${segment.to}-stayhome`,
                 title: `Wake Up & Stay Awake`,
-                time: `From ${sleepEndStr}`,
+                time: `From ${sleepEndStr} (${originCity} Time)`,
                 icon: '👁️',
                 color: '#FFF7C5',
                 why: `It's morning in ${originCity} (${sleepEndStr}).`,
