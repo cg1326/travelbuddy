@@ -1442,7 +1442,7 @@ function generateTravelCards(
                 icon: '👁️',
                 color: '#FFF7C5',
                 why: `It's still daytime in ${originCity}. Wait until ${sleepStartStr} to sleep.`,
-                how: `Watch a movie or read.`,
+                how: `Engage in something detailed like reading a book or watching a movie to keep your mind active.`,
                 dateTime: departOrigin.toISOString(),
               });
             }
