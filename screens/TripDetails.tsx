@@ -1115,14 +1115,14 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   editButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginLeft: 12 },
   tooltipContainer: {
     position: 'absolute',
-    top: 95,  // Aligned with edit button vertical position in header
-    right: 8,  // Closer to edit button
+    top: 102,  // Slightly lower to create gap between arrow and pencil
+    right: 8,
     zIndex: 1000,
   },
   tooltip: {
     backgroundColor: '#1E293Bcc',
     borderRadius: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,  // Reduced from 12 to minimize right-side space
     paddingVertical: 8,
     maxWidth: 200,
     shadowColor: '#000',
@@ -1140,7 +1140,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   tooltipArrow: {
     position: 'absolute',
     top: -6,
-    right: 20,  // Centered over edit button
+    right: 18,  // Adjusted to point at pencil tip
     width: 0,
     height: 0,
     borderLeftWidth: 6,
