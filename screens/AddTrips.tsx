@@ -20,6 +20,7 @@ import Icon from 'react-native-vector-icons/Feather';
 
 
 import { cityTimezones, airportMappings, getCityTimezone } from '../utils/jetLagAlgorithm';
+import { usePlans } from '../context/PlanContext';
 
 // Valid cities from jetLagAlgorithm.ts
 const VALID_CITIES = Object.keys(cityTimezones);
@@ -231,8 +232,14 @@ interface Trip {
 }
 
 export default function AddTrips({ route, navigation }: any) {
-  const { planName, mode, existingPlan } = route.params || {};
+  const { planName, mode, existingPlanId } = route.params || {};
   const isEditMode = mode === 'edit';
+  const { plans } = usePlans(); // Import from context
+
+  // Fetch existing plan from context if editing
+  const existingPlan = isEditMode && existingPlanId
+    ? plans.find(p => p.id === existingPlanId)
+    : null;
 
   // Mode selection
   const [inputMode, setInputMode] = useState<'simple' | 'detailed'>('simple');

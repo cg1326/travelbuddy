@@ -665,15 +665,17 @@ export default function TripDetail({ route, navigation }: any) {
         </View>
         <TouchableOpacity
           style={styles.editButton}
-          onPress={() => navigation.navigate('AddTrip', {
-            screen: 'AddTrips',
-            params: {
-              mode: 'edit',
-              existingPlan: plan,
-              planName: plan.name,
-              existingPlanId: plan.id
-            }
-          })}
+          onPress={() => {
+            // Navigate to AddTrips with minimal params to avoid serialization issues
+            navigation.navigate('AddTrip', {
+              screen: 'AddTrips',
+              params: {
+                mode: 'edit',
+                planName: plan.name,
+                existingPlanId: plan.id
+              }
+            });
+          }}
         >
           <Icon name="edit-2" size={24} color="#1E293B" />
         </TouchableOpacity>
