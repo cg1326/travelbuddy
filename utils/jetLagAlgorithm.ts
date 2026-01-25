@@ -935,7 +935,7 @@ function generatePrepareCards(
         icon: '☀️',
         color: '#fbbf24',
         why: `Traveling ${hoursDiff} hours east to ${trip.to}. Advancing your light exposure helps shift your clock earlier.`,
-        how: 'Try to get bright light exposure immediately upon waking. Go outside for 30-60 minutes if possible.',
+        how: 'Try to get bright light exposure immediately upon waking. If it is dark outside, turn on bright indoor lights or use a lightbox.',
         dateTime: moment.tz(`${currentDate} ${shiftedWakeTime.format('HH:mm')}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
       });
 
