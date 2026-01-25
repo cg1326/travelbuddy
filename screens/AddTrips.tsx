@@ -1410,7 +1410,7 @@ export default function AddTrips({ route, navigation }: any) {
           <Text style={styles.label}>From</Text>
           <TextInput
             style={[styles.input, fromError && styles.inputError]}
-            placeholder="e.g., New York"
+            placeholder="e.g., New York or JFK"
             placeholderTextColor="#94A3B8"
             value={from}
             onChangeText={(text) => {
@@ -1424,7 +1424,7 @@ export default function AddTrips({ route, navigation }: any) {
           <Text style={styles.label}>To</Text>
           <TextInput
             style={[styles.input, toError && styles.inputError]}
-            placeholder="e.g., Atlanta"
+            placeholder="e.g., Atlanta or ATL"
             placeholderTextColor="#94A3B8"
             value={to}
             onChangeText={(text) => {
