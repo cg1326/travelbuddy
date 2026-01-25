@@ -743,7 +743,7 @@ export default function TripDetail({ route, navigation }: any) {
             activeOpacity={1}
           >
             <View style={styles.tooltip}>
-              <Text style={styles.tooltipText}>✈️ Flight changed? Tap here to update your plan</Text>
+              <Text style={styles.tooltipText}>Flight changed? Tap here to update your plan</Text>
               <View style={styles.tooltipArrow} />
             </View>
           </TouchableOpacity>
@@ -1115,7 +1115,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   editButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginLeft: 12 },
   tooltipContainer: {
     position: 'absolute',
-    top: 50,
+    top: 65,  // Moved down from 50 to avoid notch
     right: 16,
     zIndex: 1000,
   },
@@ -1140,7 +1140,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   tooltipArrow: {
     position: 'absolute',
     top: -6,
-    right: 8,
+    right: 12,  // Adjusted to align better with edit button
     width: 0,
     height: 0,
     borderLeftWidth: 6,
