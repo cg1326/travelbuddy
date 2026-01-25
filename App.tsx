@@ -129,9 +129,10 @@ function PlansScreen({ navigation }: any) {
                               style={styles.editButton}
                               onPress={(e) => {
                                 e.stopPropagation();
-                                navigation.navigate('AddPlanName', {
+                                navigation.navigate('AddTrips', {
                                   mode: 'edit',
-                                  existingPlan: plan
+                                  planName: plan.name,
+                                  existingPlanId: plan.id
                                 });
                               }}
                             >
@@ -202,9 +203,10 @@ function PlansScreen({ navigation }: any) {
                                 style={styles.editButton}
                                 onPress={(e) => {
                                   e.stopPropagation();
-                                  navigation.navigate('AddPlanName', {
+                                  navigation.navigate('AddTrips', {
                                     mode: 'edit',
-                                    existingPlan: plan
+                                    planName: plan.name,
+                                    existingPlanId: plan.id
                                   });
                                 }}
                               >
