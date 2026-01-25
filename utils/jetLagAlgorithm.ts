@@ -896,13 +896,6 @@ function generatePrepareCards(
   }
 
   if (direction === 'east') {
-    // Calculate light window based on user wake time
-    const wakeTimeMoment = moment(userSettings.normalWakeTime, 'HH:mm');
-    const wakeTimeStr = userSettings.normalWakeTime;
-    const lightEndStr = wakeTimeMoment.add(2, 'hours').format('HH:mm');
-
-    const lightTime = formatTimeRange12Hour(wakeTimeStr, lightEndStr);
-
     // Calculate progressive sleep shift
     const shiftPerDay = calculatePrepSleepShift(hoursDiff, effectivePrepDays);
 
@@ -913,37 +906,55 @@ function generatePrepareCards(
       const currentDate = moment(startDate).add(dayOffset, 'days').format('YYYY-MM-DD');
       const dayLabel = daysToGenerate > 1 ? ` - ${moment(currentDate).format('MMM D')}` : '';
 
+      // Determine shift for this specific day (0 if dayOffset is beyond effectivePrepDays... wait, logic check)
+      // If effectivePrepDays = 0 (Late Night), shift is 0.
+      // If dayOffset < effectivePrepDays, apply shift.
+      let cumulativeShift = 0;
+      if (effectivePrepDays > 0 && dayOffset < effectivePrepDays) {
+        cumulativeShift = shiftPerDay * (dayOffset + 1);
+      }
+
+      // === DYNAMIC LIGHT SHIFTING (EAST) ===
+      // Shift Mornings EARLIER
+      const wakeTimeMoment = moment(userSettings.normalWakeTime, 'HH:mm');
+      const shiftedWakeTime = wakeTimeMoment.clone().subtract(cumulativeShift * 60, 'minutes');
+      const lightEndMoment = shiftedWakeTime.clone().add(2, 'hours');
+      const lightTimeStr = formatTimeRange12Hour(shiftedWakeTime.format('HH:mm'), lightEndMoment.format('HH:mm'));
+
+      // Shift Avoid Light EARLIER (2h before shifted bedtime)
+      const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
+      const shiftedBedtimeMoment = normalBedtimeMoment.clone().subtract(cumulativeShift * 60, 'minutes');
+      const avoidLightMoment = shiftedBedtimeMoment.clone().subtract(2, 'hours');
+      const avoidLightTimeStr = `${avoidLightMoment.format('h:mm A')} onwards`;
+
       // Morning light card for this day
       cards.push({
         id: `prep-light-day${dayOffset + 1}`,
         title: `Seek Morning Light${dayLabel}`,
-        time: lightTime,
+        time: lightTimeStr,
         icon: '☀️',
         color: '#fbbf24',
-        why: `Traveling ${hoursDiff} hours east to ${trip.to}. Morning light is commonly used to advance the body clock.`,
-        how: 'Try to get bright light exposure within 2 hours of waking. Go outside for 30-60 minutes if possible.',
-        dateTime: moment.tz(`${currentDate} ${wakeTimeStr}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+        why: `Traveling ${hoursDiff} hours east to ${trip.to}. Advancing your light exposure helps shift your clock earlier.`,
+        how: 'Try to get bright light exposure immediately upon waking. Go outside for 30-60 minutes if possible.',
+        dateTime: moment.tz(`${currentDate} ${shiftedWakeTime.format('HH:mm')}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
       });
 
       // Avoid evening light card for this day
       cards.push({
         id: `prep-avoid-evening-light-day${dayOffset + 1}`,
         title: `Avoid Bright Light${dayLabel}`,
-        time: '8:00 PM onwards',
+        time: avoidLightTimeStr,
         icon: '🌙',
         color: '#64748b',
-        why: 'Evening light can delay your clock - opposite of what helps for eastward travel.',
+        why: 'Evening light delays your clock. Avoiding it early helps you fall asleep at your earlier bedtime.',
         how: 'Consider dimming lights in your home. Use warm/amber lighting if available.',
-        dateTime: moment.tz(`${currentDate} 20:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+        dateTime: moment.tz(`${currentDate} ${avoidLightMoment.format('HH:mm')}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
       });
 
       // Sleep card for this day (only if effectivePrepDays > 0)
       if (effectivePrepDays > 0 && dayOffset < effectivePrepDays) {
-        const cumulativeShift = shiftPerDay * (dayOffset + 1);
-
-        // Calculate shifted bedtime for this specific day
-        const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
-        const shiftedBedtime = normalBedtimeMoment.clone().subtract(cumulativeShift * 60, 'minutes').format('HH:mm');
+        const shiftedBedtime = shiftedBedtimeMoment.format('HH:mm');
+        const normalBedtime = normalBedtimeMoment.format('HH:mm');
 
         // Format shift amount for display
         const shiftHours = Math.floor(cumulativeShift);
@@ -970,47 +981,53 @@ function generatePrepareCards(
     }
 
   } else {
-    const lightTime = '6:00 - 8:00 PM';
-
-    // Calculate progressive sleep shift
+    // WESTWARD LOGIC
     const shiftPerDay = calculatePrepSleepShift(hoursDiff, effectivePrepDays);
-
-    // Generate cards for each prep day (or at least 1 day if effectivePrepDays is 0)
     const daysToGenerate = Math.max(effectivePrepDays, 1);
 
     for (let dayOffset = 0; dayOffset < daysToGenerate; dayOffset++) {
       const currentDate = moment(startDate).add(dayOffset, 'days').format('YYYY-MM-DD');
       const dayLabel = daysToGenerate > 1 ? ` - ${moment(currentDate).format('MMM D')}` : '';
 
+      // Calculate cumulative shift
+      let cumulativeShift = 0;
+      if (effectivePrepDays > 0 && dayOffset < effectivePrepDays) {
+        cumulativeShift = shiftPerDay * (dayOffset + 1);
+      }
+
+      // === DYNAMIC LIGHT SHIFTING (WEST) ===
+      // Shift Evening Light LATER
+      // Base: 6 PM - 8 PM
+      const baseLightStart = moment('18:00', 'HH:mm');
+      const shiftedLightStart = baseLightStart.clone().add(cumulativeShift * 60, 'minutes');
+      const shiftedLightEnd = shiftedLightStart.clone().add(2, 'hours'); // Keep 2 hr window
+      const lightTimeStr = formatTimeRange12Hour(shiftedLightStart.format('HH:mm'), shiftedLightEnd.format('HH:mm'));
+
       // Evening light card for this day
       cards.push({
         id: `prep-light-day${dayOffset + 1}`,
         title: `Seek Evening Light${dayLabel}`,
-        time: lightTime,
+        time: lightTimeStr,
         icon: '🌅',
         color: '#f97316',
-        why: `Traveling ${hoursDiff} hours west to ${trip.to}. Evening light is commonly used to delay the body clock.`,
+        why: `Traveling ${hoursDiff} hours west to ${trip.to}. Delaying your light exposure helps shift your clock later.`,
         how: 'Try to get bright light exposure in the evening. Go outside or use bright indoor lighting.',
-        dateTime: moment.tz(`${currentDate} 18:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
+        dateTime: moment.tz(`${currentDate} ${shiftedLightStart.format('HH:mm')}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
       });
 
       // Sleep card for this day (only if effectivePrepDays > 0)
       if (effectivePrepDays > 0 && dayOffset < effectivePrepDays) {
-        const cumulativeShift = shiftPerDay * (dayOffset + 1);
-
         // Calculate shifted bedtime for this specific day
         const normalBedtimeMoment = moment(userSettings.normalBedtime, 'HH:mm');
         const shiftedBedtime = normalBedtimeMoment.clone().add(cumulativeShift * 60, 'minutes').format('HH:mm');
 
         // Check for midnight crossing (Westward shifts later)
-        // If normal is PM (>=18) and shifted is AM (<12), assume it's the next day
         const normalH = parseInt(userSettings.normalBedtime.split(':')[0], 10);
         const shiftedH = parseInt(shiftedBedtime.split(':')[0], 10);
         let dateOffset = 0;
         if (normalH >= 18 && shiftedH < 12) {
           dateOffset = 1;
         }
-        // Use the corrected date for dateTime ensures correct sorting (after evening light)
         const sortableDate = moment(currentDate).add(dateOffset, 'days').format('YYYY-MM-DD');
 
         // Format shift amount for display
