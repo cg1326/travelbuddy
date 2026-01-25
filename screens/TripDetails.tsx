@@ -1124,7 +1124,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    width: 190,  // Fixed width to prevent text wrapping and excess space
+    width: 185,  // Reduced from 190 to eliminate right-side space
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -1141,7 +1141,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   tooltipArrow: {
     position: 'absolute',
     top: -6,
-    right: 24,  // Increased from 14 to move arrow LEFT toward pencil
+    right: 28,  // Increased from 24 to move arrow slightly more left
     width: 0,
     height: 0,
     borderLeftWidth: 6,
