@@ -667,13 +667,10 @@ export default function TripDetail({ route, navigation }: any) {
           style={styles.editButton}
           onPress={() => {
             // Navigate to AddTrips with minimal params to avoid serialization issues
-            navigation.navigate('AddTrip', {
-              screen: 'AddTrips',
-              params: {
-                mode: 'edit',
-                planName: plan.name,
-                existingPlanId: plan.id
-              }
+            navigation.navigate('AddTrips', {
+              mode: 'edit',
+              planName: plan.name,
+              existingPlanId: plan.id
             });
           }}
         >
