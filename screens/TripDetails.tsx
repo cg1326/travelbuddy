@@ -1115,8 +1115,8 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   editButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginLeft: 12 },
   tooltipContainer: {
     position: 'absolute',
-    top: 65,  // Moved down from 50 to avoid notch
-    right: 16,
+    top: 95,  // Aligned with edit button vertical position in header
+    right: 8,  // Closer to edit button
     zIndex: 1000,
   },
   tooltip: {
@@ -1140,7 +1140,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   tooltipArrow: {
     position: 'absolute',
     top: -6,
-    right: 12,  // Adjusted to align better with edit button
+    right: 20,  // Centered over edit button
     width: 0,
     height: 0,
     borderLeftWidth: 6,
