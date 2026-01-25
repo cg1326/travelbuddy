@@ -663,6 +663,20 @@ export default function TripDetail({ route, navigation }: any) {
           <Text style={styles.planName}>{plan.name}</Text>
           <Text style={styles.subtitle}>{moment(trip.departDate).format('MMM D, YYYY')} Departure</Text>
         </View>
+        <TouchableOpacity
+          style={styles.editButton}
+          onPress={() => navigation.navigate('AddTrip', {
+            screen: 'AddTrips',
+            params: {
+              mode: 'edit',
+              existingPlan: plan,
+              planName: plan.name,
+              existingPlanId: plan.id
+            }
+          })}
+        >
+          <Icon name="edit-2" size={24} color="#1E293B" />
+        </TouchableOpacity>
       </View>
 
       {/* ────── Trip Navigation Arrows ────── */}
@@ -1027,6 +1041,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   },
   headerContent: { flex: 1 },
   backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  editButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginLeft: 12 },
   planName: { fontFamily: 'Jua', fontSize: 20, color: '#1E293B' },
   subtitle: { fontFamily: 'Jua', fontSize: 14, color: '#64748B', marginTop: 4 },
   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },

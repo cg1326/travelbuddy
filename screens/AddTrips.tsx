@@ -227,6 +227,7 @@ interface Trip {
   segments: FlightSegment[];
   connections: any[];
   arrivalRestStatus?: 'exhausted' | 'ok';
+  arrivalRestRecordedAt?: string;
 }
 
 export default function AddTrips({ route, navigation }: any) {
@@ -848,7 +849,11 @@ export default function AddTrips({ route, navigation }: any) {
     }
 
     // All valid - add or update trip
-    // All valid - add or update trip
+    // Preserve existing trip metadata if editing
+    const existingTrip = isEditingTrip && editingTripId
+      ? completedTrips.find(t => t.id === editingTripId)
+      : null;
+
     const trip: Trip = {
       id: isEditingTrip && editingTripId ? editingTripId : Date.now().toString(),
       from: resolvedFrom,
@@ -860,6 +865,11 @@ export default function AddTrips({ route, navigation }: any) {
       hasConnections: false,
       segments: [segment],
       connections: [],
+      // Preserve arrival rest status if it exists
+      ...(existingTrip?.arrivalRestStatus && {
+        arrivalRestStatus: existingTrip.arrivalRestStatus,
+        arrivalRestRecordedAt: existingTrip.arrivalRestRecordedAt
+      })
     };
 
     if (isEditingTrip && editingTripId) {
