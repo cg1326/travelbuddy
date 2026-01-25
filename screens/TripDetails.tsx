@@ -1124,7 +1124,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     borderRadius: 8,
     paddingHorizontal: 8,
     paddingVertical: 8,
-    width: 185,  // Reduced from 190 to eliminate right-side space
+    width: 175,  // Reduced from 185 to eliminate right-side space
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
