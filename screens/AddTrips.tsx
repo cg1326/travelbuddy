@@ -226,6 +226,7 @@ interface Trip {
   hasConnections: boolean;
   segments: FlightSegment[];
   connections: any[];
+  arrivalRestStatus?: 'exhausted' | 'ok';
 }
 
 export default function AddTrips({ route, navigation }: any) {

@@ -26,6 +26,8 @@ export interface Trip {
   segments?: FlightSegment[];
   connections: Connection[];
   adjustmentPreference?: 'stay_home' | 'adjust'; // User override for short trips
+  arrivalRestStatus?: 'exhausted' | 'ok';
+  arrivalRestRecordedAt?: string; // ISO string of when the user set the status
 }
 
 export interface Card {
@@ -496,6 +498,19 @@ function formatTime12Hour(time24: string): string {
   return moment(time24, 'HH:mm').format('h:mm A');
 }
 
+
+// Helper to round moment to nearest 5 minutes
+const roundToNearest5 = (m: moment.Moment): moment.Moment => {
+  const rounded = m.clone();
+  const remainder = rounded.minute() % 5;
+  if (remainder < 3) {
+    rounded.subtract(remainder, 'minutes');
+  } else {
+    rounded.add(5 - remainder, 'minutes');
+  }
+  return rounded.startOf('minute');
+};
+
 function formatTimeRange12Hour(start: string, end: string): string {
   return `${formatTime12Hour(start)} - ${formatTime12Hour(end)}`;
 }
@@ -833,9 +848,9 @@ function generatePrepareCards(
   let effectivePrepDays = prepDays;
 
   if (departHour >= 21 || departHour < 5) {
-    // FIX: Fully suppress sleep advice for late night flights.
-    // Reducing by 1 day is confusing and low value for max 2-day prep.
-    effectivePrepDays = 0;
+    // For late night flights, we still show the prep phase to maintain consistency.
+    // The user can choose to follow the shift or not.
+    // effectivePrepDays = 0; // REMOVED SUPPRESSION
   }
 
   if (hoursDiff < 3) {
@@ -1041,17 +1056,75 @@ function generatePrepareCards(
           ? ` Tomorrow you'll shift another ${Math.round(shiftPerDay * 60)} minutes.`
           : '';
 
-        cards.push({
-          id: `prep-sleep-day${dayOffset + 1}`,
-          title: `Sleep Later${dayLabel}`,
-          time: formatTime12Hour(shiftedBedtime),
-          icon: '🌙',
-          color: '#1C5D74',
-          why: `Start shifting your sleep ${shiftText} later than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime.${progressText}`,
-          how: 'Try to stay up later than usual. Keep lights bright in the evening.',
-          dateTime: moment.tz(`${sortableDate} ${shiftedBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from)).toISOString(),
-        });
+        // Check if shifted bedtime conflicts with flight (e.g. 12:30 AM departure vs 12:00 AM sleep)
+        const shiftedBedtimeFull = moment.tz(`${sortableDate} ${shiftedBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from));
+        const flightDepart = moment.tz(`${trip.departDate} ${trip.departTime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from));
+
+        // If sleep time is within 3 hours BEFORE flight, advising sleep is impossible.
+        // Change to "Stay Awake" guidance.
+        const hoursToFlight = flightDepart.diff(shiftedBedtimeFull, 'hours', true);
+
+        if (hoursToFlight > 0 && hoursToFlight < 3) {
+          cards.push({
+            id: `prep-sleep-day${dayOffset + 1}`,
+            title: `Stay Awake Until Flight`,
+            time: `Until Departure (${formatTime12Hour(trip.departTime)})`,
+            icon: 'eye',
+            color: '#FFF7C5',
+            why: `Your target sleep time (${formatTime12Hour(shiftedBedtime)}) is close to your flight. Stay awake until you board.`,
+            how: 'Resist the urge to nap at the gate. Sleep as soon as possible after takeoff.',
+            dateTime: shiftedBedtimeFull.toISOString(),
+          });
+        } else {
+          cards.push({
+            id: `prep-sleep-day${dayOffset + 1}`,
+            title: `Sleep Later${dayLabel}`,
+            time: formatTime12Hour(shiftedBedtime),
+            icon: '🌙',
+            color: '#1C5D74',
+            why: `Start shifting your sleep ${shiftText} later than your normal ${formatTime12Hour(userSettings.normalBedtime)} bedtime.${progressText}`,
+            how: 'Try to stay up later than usual. Keep lights bright in the evening.',
+            dateTime: shiftedBedtimeFull.toISOString(),
+          });
+        }
       }
+    }
+  }
+
+  // FIX #6: Add Pre-Flight Caffeine Cutoff for Late/Early Flights
+  // If the flight departs late tonight (e.g. 11 PM) or very early tomorrow (e.g. 1 AM),
+  // advise caffeine cutoff on the main prepare day (today).
+  // departHour is already parsed above at line 847
+  const isLateDep = departHour >= 21 || departHour < 5;
+  const lastPrepDate = moment(startDate).add(Math.max(prepDays, 1) - 1, 'days').format('YYYY-MM-DD');
+
+  if (isLateDep) {
+    // Determine the user's bedtime on the last prep day
+    const userBedtimeMoment = moment.tz(`${lastPrepDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from));
+
+    // Determine the flight departure relative to the last prep day
+    // If flight is 00:30 on Jan 25, and lastPrepDate is Jan 24.
+    // The departure is Jan 25 00:30.
+    const flightDepartMoment = moment.tz(`${trip.departDate} ${trip.departTime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.from));
+
+    // Logic: Cutoff 6h before bed OR 4h before flight.
+    const caffeineCutoffFromBedtime = userBedtimeMoment.clone().subtract(6, 'hours');
+    const caffeineCutoffFromFlight = flightDepartMoment.clone().subtract(4, 'hours');
+    const caffeineStopTime = moment.min(caffeineCutoffFromBedtime, caffeineCutoffFromFlight);
+
+    // Only show if the calculated cutoff falls on this prep day (or very late previous day)
+    // Avoid duplicates if hoursDiff is small
+    if (hoursDiff >= 3) {
+      cards.push({
+        id: `prep-caffeine-cutoff`,
+        title: `Pre-Flight Caffeine Cutoff - ${moment(lastPrepDate).format('MMM D')}`,
+        time: `Stop by ${caffeineStopTime.format('h:mm A')}`,
+        icon: '🚫',
+        color: '#F3F0ED',
+        why: `You have a late flight. Stopping caffeine early helps you sleep on the plane.`,
+        how: `Switch to water or herbal tea after ${caffeineStopTime.format('h:mm A')}.`,
+        dateTime: caffeineStopTime.toISOString(),
+      });
     }
   }
 
@@ -1257,6 +1330,41 @@ function generateTravelCards(
         dateTime: moment.tz(`${dateYYYYMMDD} 00:00:01`, 'YYYY-MM-DD HH:mm:ss', getCityTimezone(firstSegToday.segment.from)).toISOString(),
       });
 
+      // FIX: Add Morning Light & Hydration for Departure Day
+      // Only added if the flight time allows for it (e.g. not 6 AM departure)
+      if (isFirstDay) {
+        const departHour = firstSegToday.departMoment.hour();
+
+        // Hydrate: Only if flight is in afternoon/evening (>= 12 PM)
+        // If flight is morning, "Stay Hydrated" covers the flight itself.
+        if (departHour >= 12) {
+          cards.push({
+            id: `travel-hydrate-${dateYYYYMMDD}`,
+            title: 'Start Hydrating',
+            time: departHour >= 16 ? 'Morning & Afternoon' : 'Before your flight',
+            icon: '💧',
+            color: '#DBEAFE', // Matches CARD_THEMES.Hydrated background
+            why: 'The air in planes is very dry. Boosting hydration now reduces jet lag later.',
+            how: 'Drink a glass of water every hour or so leading up to your flight.',
+            dateTime: moment.tz(`${dateYYYYMMDD} 09:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(firstSegToday.segment.from)).toISOString(),
+          });
+        }
+
+        // Morning Light: Only if flight leaves after 11 AM (gives 7-9 AM window)
+        if (departHour >= 11) {
+          cards.push({
+            id: `travel-morning-light-${dateYYYYMMDD}`,
+            title: 'Seek Morning Light',
+            time: '7:00 AM - 9:00 AM',
+            icon: '☀️',
+            color: '#FFF7C5', // Matches CARD_THEMES.Sunlight background
+            why: 'Get bright light this morning to anchor your circadian rhythm before travel.',
+            how: 'Get outside or use bright lights immediately after waking.',
+            dateTime: moment.tz(`${dateYYYYMMDD} 07:00`, 'YYYY-MM-DD HH:mm', getCityTimezone(firstSegToday.segment.from)).toISOString(),
+          });
+        }
+      }
+
       // FIX #3: Add per-day caffeine guidance
       const hasOvernightFlightToday = segmentsDepartingToday.some(a => a.shouldSleep);
 
@@ -1279,16 +1387,21 @@ function generateTravelCards(
           // Use the earlier of the two times
           const caffeineStopTime = moment.min(caffeineCutoffFromBedtime, caffeineCutoffFromFlight);
 
-          cards.push({
-            id: `caffeine-cutoff-${dateYYYYMMDD}`,
-            title: 'Caffeine Cutoff',
-            time: `Stop by ${caffeineStopTime.format('h:mm A')} ${firstSegment.from} time`,
-            icon: '🚫',
-            color: '#F3F0ED',
-            why: `You have an overnight flight at ${overnightFlight.departMoment.format('h:mm A')}. Stopping caffeine early is often recommended for better sleep.`,
-            how: `Consider switching to water or herbal tea. This may help you rest on your overnight flight.`,
-            dateTime: caffeineStopTime.toISOString(),
-          });
+          // FIX: If caffeine cutoff is actually on the PREVIOUS day (e.g. 12:30 AM flight -> 8:30 PM prev day),
+          // do NOT show it on the current day's list, as it confuses the user.
+          // (The user should have seen this in the 'Prepare' phase).
+          if (caffeineStopTime.isSameOrAfter(moment(dateYYYYMMDD))) {
+            cards.push({
+              id: `caffeine-cutoff-${dateYYYYMMDD}`,
+              title: 'Caffeine Cutoff',
+              time: `Stop by ${caffeineStopTime.format('h:mm A')} ${firstSegment.from} time`,
+              icon: '🚫',
+              color: '#F3F0ED',
+              why: `You have an overnight flight at ${overnightFlight.departMoment.format('h:mm A')}. Stopping caffeine early is often recommended for better sleep.`,
+              how: `Consider switching to water or herbal tea. This may help you rest on your overnight flight.`,
+              dateTime: caffeineStopTime.toISOString(),
+            });
+          }
         }
       } else if (hasOvernightFlightTomorrow) {
 
@@ -1680,7 +1793,7 @@ function generateTravelCards(
   return cards;
 }
 
-function generateAdjustCards(
+export function generateAdjustCards(
   trip: Trip,
   direction: 'east' | 'west',
   hoursDiff: number,
@@ -1711,6 +1824,7 @@ function generateAdjustCards(
   // TRIGGER: Late Night Arrival Logic (< 4 AM)
   // If true, we treat the rest of the arrival day as "Day 1" of the Daily Routine.
   const isLateNightArrival = landingHour < 4;
+  const isExhausted = trip.arrivalRestStatus === 'exhausted';
 
   // ============================================
   // ARRIVAL DAY CARDS (conditional based on landing time)
@@ -1733,35 +1847,109 @@ function generateAdjustCards(
     dateTime: landingMoment.toISOString(),
   });
 
+  // EXHAUSTED TRAVELER: Recovery Nap
+  // Logic:
+  // 1. Triggered if user marked "exhausted".
+  // 2. Nap Start Time:
+  //    - If recorded time exists, use max(LandingTime + 15m, RecordedTime + 5m)
+  //    - Else use LandingTime + 15m
+  // 3. Cutoff:
+  //    - Must be started by 4 PM (16:00) generally.
+  //    - AND must finish at least 6 hours before "bedtime" (roughly 10pm).
+  //    - For simplicity, we stick to the 4 PM start time cutoff as a proxy for "too late to nap".
+
+  let napEndMoment: moment.Moment | null = null; // Track when the nap ends to delay other cards
+
+  if (isExhausted) {
+    const recordedAt = trip.arrivalRestRecordedAt ? moment(trip.arrivalRestRecordedAt) : null;
+
+    // Default: Landing + 90 mins (travel/customs time)
+    let napStartMoment = landingMoment.clone().add(90, 'minutes');
+
+    // If recorded later than landing, use Recorded + 30 mins (settling in time)
+    // We take the LATER of the two to be safe.
+    // FIX: Ensure we convert the recorded time (which is absolute) to the DESTINATION timezone
+    // so that .format() prints the correct local clock time.
+    const destTz = getCityTimezone(trip.to);
+    if (recordedAt && recordedAt.clone().add(30, 'minutes').isAfter(napStartMoment)) {
+      napStartMoment = recordedAt.clone().add(30, 'minutes').tz(destTz);
+    }
+
+    napStartMoment = roundToNearest5(napStartMoment);
+
+    napStartMoment = roundToNearest5(napStartMoment);
+
+    const napStartHour = napStartMoment.hour();
+
+    // Only suggest nap if start time is reasonably during the day (6 AM - 4 PM)
+    // This prevents "Night Naps" (e.g. 12:30 AM) caused by late check-ins wrapping to next day
+    // or very early morning arrivals where they should just sleep.
+    if (napStartHour >= 6 && napStartHour < 16) {
+      cards.push({
+        id: 'adjust-arrival-nap',
+        title: 'Priority: Recovery Nap',
+        time: napStartMoment.format('h:mm A') + ' for 90 min',
+        icon: '🛌',
+        color: '#Fcd34d',
+        why: 'Since you are feeling drained, a 90-minute nap (one full sleep cycle) will reduce sleep pressure without causing grogginess.',
+        how: 'Set an alarm for exactly 90 minutes. Do not oversleep, or it will be hard to sleep tonight.',
+        dateTime: napStartMoment.toISOString(),
+      });
+
+      // Calculate end time for conflict resolution
+      napEndMoment = napStartMoment.clone().add(90, 'minutes');
+    }
+  }
+
   // If land between 4 AM and 10 AM - get morning sunlight immediately
   // NOTE: For late night arrivals (< 4 AM), we SKIP this card.
   // The Daily Routine "Seek Sunlight" card will cover the morning of this arrival day.
   // ALSO SKIP for Stay Home strategy
   if (adjustmentStrategy.percentage > 0 && landingHour >= 4 && landingHour < 10) {
-    cards.push({
-      id: 'adjust-arrival-morning-light',
-      title: 'Seek Morning Sunlight Now', // Changed title to distinguish from daily routine
-      time: `${landingTime} - 10:00 AM`,
-      icon: '☀️',
-      color: '#FFF7C5',
-      why: `Perfect timing! You landed during prime morning light hours. Get outside immediately.`,
-      how: 'Get sunlight during your commute from airport. Even through windows helps. This jumpstarts your adjustment.',
-      dateTime: landingMoment.toISOString(),
-    });
+    let sunStart = landingMoment.clone();
+
+    // CONFLICT RESOLUTION: If napping, start sunlight AFTER nap
+    if (napEndMoment && napEndMoment.isAfter(sunStart)) {
+      sunStart = napEndMoment.clone().add(15, 'minutes'); // Wake up, wash face, then sun
+    }
+
+    // Only show if the delayed start is still reasonably "morning" (e.g. before noon)
+    if (sunStart.hour() < 12) {
+      cards.push({
+        id: 'adjust-arrival-morning-light',
+        title: 'Seek Morning Sunlight Now', // Changed title to distinguish from daily routine
+        time: `${roundToNearest5(sunStart).format('h:mm A')} - 10:00 AM`, // Rounded start time
+        icon: '☀️',
+        color: '#FFF7C5',
+        why: `Perfect timing! You landed during prime morning light hours. Get outside immediately.`,
+        how: 'Get sunlight during your commute from airport. Even through windows helps. This jumpstarts your adjustment.',
+        dateTime: sunStart.toISOString(),
+      });
+    }
   }
 
   // If land 10 AM - 6 PM - get afternoon sunlight (Skip for Stay Home)
   if (adjustmentStrategy.percentage > 0 && landingHour >= 10 && landingHour < 18) {
-    cards.push({
-      id: 'adjust-arrival-afternoon-light',
-      title: 'Get Afternoon Sunlight',
-      time: `${landingTime} - 6:00 PM`,
-      icon: '🌞',
-      color: '#FFF7C5',
-      why: `You landed mid-day. Get outdoor light for the rest of the afternoon to help adjustment.`,
-      how: 'Stay active outdoors if possible. Walk around your neighborhood. Sit by windows. Avoid napping.',
-      dateTime: landingMoment.toISOString(),
-    });
+    let sunStart = landingMoment.clone();
+
+    // CONFLICT RESOLUTION: If napping, start sunlight AFTER nap
+    if (napEndMoment && napEndMoment.isAfter(sunStart)) {
+      sunStart = napEndMoment.clone().add(15, 'minutes');
+    }
+
+    // Only show if start time is still before 6 PM
+    if (sunStart.hour() < 18) {
+      cards.push({
+        id: 'adjust-arrival-afternoon-light',
+        title: 'Get Afternoon Sunlight',
+        time: `${roundToNearest5(sunStart).format('h:mm A')} - 6:00 PM`, // Rounded start time
+        icon: '🌞',
+        color: '#FFF7C5',
+        why: `You landed mid-day. Get outdoor light for the rest of the afternoon to help adjustment.`,
+        how: 'Stay active outdoors if possible. Walk around your neighborhood. Sit by windows. Avoid napping.',
+        dateTime: sunStart.toISOString(),
+      });
+    }
   }
 
   // Caffeine guidance for arrival day
@@ -1769,22 +1957,33 @@ function generateAdjustCards(
   // Avoid suggesting it for middle-of-the-night arrivals (e.g. 1 AM) where sleep is priority.
   // SKIP for Stay Home strategy (users should stick to origin habits)
   if (adjustmentStrategy.percentage > 0 && landingHour >= 6 && landingHour < 14) {
-    cards.push({
-      id: 'adjust-arrival-caffeine',
-      title: 'Caffeine OK Until 2 PM',
-      time: `${landingTime} - 2:00 PM`,
-      icon: '☕',
-      color: '#B46B49',
-      why: 'Stay alert after landing, but cut off early enough to sleep tonight.',
-      how: 'Coffee or tea is fine until 2 PM. Then switch to water.',
-      dateTime: landingMoment.toISOString(),
-    });
+    let caffeineStart = landingMoment.clone();
+
+    // CONFLICT RESOLUTION: If napping, delay caffeine until AFTER nap
+    if (napEndMoment && napEndMoment.isAfter(caffeineStart)) {
+      caffeineStart = napEndMoment.clone().add(15, 'minutes');
+    }
+
+    // Check if simplified cutoff (2 PM) is still valid
+    // If caffeineStart is AFTER 2 PM, don't show the card at all.
+    if (caffeineStart.hour() < 14) {
+      cards.push({
+        id: 'adjust-arrival-caffeine',
+        title: 'Caffeine OK Until 2 PM',
+        time: `${roundToNearest5(caffeineStart).format('h:mm A')} - 2:00 PM`, // Rounded start time
+        icon: '☕',
+        color: '#B46B49',
+        why: 'Stay alert after landing, but cut off early enough to sleep tonight.',
+        how: 'Coffee or tea is fine until 2 PM. Then switch to water.',
+        dateTime: caffeineStart.toISOString(),
+      });
+    }
   }
 
   // No caffeine after 2 PM (Always show, UNLESS it's a Late Night Arrival OR Stay Home Strategy)
   // For Late Night Arrivals, the Daily Routine "Limit Caffeine" card will cover this day.
   if (!isLateNightArrival && adjustmentStrategy.percentage > 0) {
-    const noCaffeineTime = landingMoment.clone().hour(14).minute(0).second(0);
+    const noCaffeineTime = roundToNearest5(landingMoment.clone().hour(14).minute(0).second(0));
     cards.push({
       id: 'adjust-arrival-no-caffeine',
       title: 'Limit Caffeine After 2 PM',
@@ -1892,16 +2091,48 @@ function generateAdjustCards(
 
 
     if (adjustmentStrategy.percentage > 0) {
+      // Resolve Conflict: Late Arrival vs Early Bedtime
+      // If arrival is 9 PM and bedtime is 9 PM, user cannot sleep instantly.
+      // Enforce a minimum "Settling In" buffer (e.g. 90 mins) after landing.
+      const arrivalBedtimeBase = moment.tz(`${arrivalDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to));
+
+      // Calculate target bedtime based on exhaustion
+      // Exhausted: Normal - 1h. Standard: Normal.
+      let targetBedtime = isExhausted
+        ? arrivalBedtimeBase.clone().subtract(1, 'hour')
+        : arrivalBedtimeBase.clone();
+
+      // Calculate minimum allowed bedtime (Landing + 90 mins) to allow for transport/food
+      const minBedtime = landingMoment.clone().add(90, 'minutes');
+
+      // Use the later of the two
+      if (targetBedtime.isBefore(minBedtime)) {
+        targetBedtime = minBedtime;
+      }
+
+      // Round to nearest 5
+      targetBedtime = roundToNearest5(targetBedtime);
+
+      // Determine strict title: Only call it "Early Bedtime" if it's actually early (e.g. at least 30m before normal)
+      const isActuallyEarly = targetBedtime.isBefore(arrivalBedtimeBase.clone().subtract(29, 'minutes'));
+
       cards.push({
         id: 'adjust-arrival-sleep',
-        title: 'Sleep at Local Bedtime',
-        time: formatTimeRange12Hour(userSettings.normalBedtime, moment(userSettings.normalBedtime, 'HH:mm').add(8, 'hours').format('HH:mm')),
+        // FIX: Add "Priority:" prefix if exhausted to trigger the Peach color theme in TripDetails.tsx
+        title: isExhausted
+          ? (isActuallyEarly ? 'Priority: Early Bedtime' : 'Priority: Sleep at Local Bedtime')
+          : 'Sleep at Local Bedtime',
+        time: formatTime12Hour(targetBedtime.format('HH:mm')),
         icon: '🌙',
-        color: '#1C5D74',
-        why: 'Getting to bed at a reasonable local time helps start your adjustment.',
-        how: `Try to sleep around ${formatTime12Hour(userSettings.normalBedtime)}. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
+        color: isExhausted ? '#FFE4D6' : '#1C5D74', // Algorithm color (backup)
+        why: isExhausted
+          ? 'Since you\'re feeling drained, aim to sleep as soon as possible after settling in.'
+          : 'Getting to bed at a reasonable local time helps start your adjustment.',
+        how: isExhausted
+          ? `Push through until at least ${formatTime12Hour(targetBedtime.clone().subtract(30, 'minutes').format('HH:mm'))}, then crash. Don't go to bed too early or you'll wake up at 2 AM.`
+          : `Try to sleep around ${formatTime12Hour(targetBedtime.format('HH:mm'))}. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
           } Keep room dark and cool.`,
-        dateTime: moment.tz(`${arrivalDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
+        dateTime: targetBedtime.toISOString(),
       });
     } else {
       // Stay Home logic for evening arrival?
@@ -1921,7 +2152,7 @@ function generateAdjustCards(
     // Daytime arrival (before 6 PM) - normal dinner and sleep schedule
     // Only for Adjustment Strategy
     if (adjustmentStrategy.percentage > 0) {
-      const dinnerTime = landingMoment.clone().hour(18).minute(0).second(0);
+      const dinnerTime = roundToNearest5(landingMoment.clone().hour(18).minute(0).second(0));
       cards.push({
         id: 'adjust-arrival-dinner',
         title: 'Eat Dinner at Local Time',
@@ -1937,12 +2168,18 @@ function generateAdjustCards(
     if (adjustmentStrategy.percentage > 0) {
       cards.push({
         id: 'adjust-arrival-sleep',
-        title: 'Sleep at Local Time Tonight',
-        time: formatTime12Hour(userSettings.normalBedtime),
+        title: isExhausted ? 'Early Bedtime' : 'Sleep at Local Time Tonight',
+        time: isExhausted
+          ? formatTime12Hour(moment(userSettings.normalBedtime, 'HH:mm').subtract(1, 'hour').format('HH:mm'))
+          : formatTime12Hour(userSettings.normalBedtime),
         icon: '🌙',
         color: '#1C5D74',
-        why: 'Your first night in the new timezone. Sleeping at normal local bedtime is recommended even if not tired.',
-        how: `Try to go to bed around ${formatTime12Hour(userSettings.normalBedtime)}. Keep room dark and cool. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
+        why: isExhausted
+          ? 'Since you are feeling drained, aim for an early bedtime to catch up on rest while anchoring to local time.'
+          : 'Your first night in the new timezone. Sleeping at normal local bedtime is recommended even if not tired.',
+        how: isExhausted
+          ? `Push through until at least ${formatTime12Hour(moment(userSettings.normalBedtime, 'HH:mm').subtract(1.5, 'hours').format('HH:mm'))}, then crash. Don't go to bed too early or you'll wake up in the middle of the night.`
+          : `Try to go to bed around ${formatTime12Hour(userSettings.normalBedtime)}. Keep room dark and cool. ${userSettings.useMelatonin ? 'Using melatonin is an option 30 min before bed if you choose.' : ''
           }`,
         dateTime: moment.tz(`${arrivalDate} ${userSettings.normalBedtime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to)).toISOString(),
       });
@@ -2012,7 +2249,7 @@ function generateAdjustCards(
     const bedMoment = moment(userSettings.normalBedtime, 'HH:mm');
     // Handle crossing midnight for bedtime if needed (though usually simple subtraction works for time-of-day logic here)
     // We just need a time string for the same day context
-    const caffeineCutoffMoment = bedMoment.clone().subtract(9, 'hours');
+    const caffeineCutoffMoment = roundToNearest5(bedMoment.clone().subtract(9, 'hours'));
     const caffeineCutoffStr = caffeineCutoffMoment.format('HH:mm');
     const cutoffTimeDisplay = caffeineCutoffMoment.format('h:mm A');
 
@@ -2158,13 +2395,23 @@ function generateAdjustCards(
 
 
   // Sort all cards chronologically before returning
+  // Sort all cards: Arrival -> Priority -> Chronological
   cards.sort((a, b) => {
-    // Cards with dateTime come first, sorted chronologically
-    // Cards without dateTime (daily routine cards) come last, in insertion order
+    // 1. 'You've Arrived' card always FIRST
+    if (a.id === 'adjust-arrival') return -1;
+    if (b.id === 'adjust-arrival') return 1;
+
+    // 2. 'Priority' cards always SECOND
+    const IsPriorityA = a.title.includes('Priority');
+    const IsPriorityB = b.title.includes('Priority');
+    if (IsPriorityA && !IsPriorityB) return -1;
+    if (!IsPriorityA && IsPriorityB) return 1;
+
+    // 3. Chronological (Cards with dateTime come first)
     if (a.dateTime && !b.dateTime) return -1;
     if (!a.dateTime && b.dateTime) return 1;
     if (!a.dateTime && !b.dateTime) return 0;
-    if (!a.dateTime && !b.dateTime) return 0;
+
     return moment(a.dateTime).diff(moment(b.dateTime));
   });
 

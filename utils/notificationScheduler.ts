@@ -118,6 +118,22 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
         }
       }
     }
+    // Inject "Welcome / Energy Check" Notification (15 mins after arrival)
+    // This is a synthetic card just for notifications—it triggers the app to open,
+    // where TripDetails.tsx will automatically show the "Exhausted/Ok" modal.
+    const energyCheckTime = arriveDate.clone().add(15, 'minutes');
+    if (energyCheckTime.isValid()) {
+      allCards.push({
+        id: `energy-check-${tripIndex}`,
+        title: `Welcome to ${trip.to}!`,
+        time: 'Tell us how you feel post-flight so we can tailor the rest of your adjustment plan',
+        dateTime: energyCheckTime.toISOString(),
+        fullDateTime: energyCheckTime,
+        planName: activePlanName,
+        destination: trip.to,
+        isInfo: false, // Ensure it gets scheduled
+      });
+    }
   });
 
   // Deduplicate cards based on ID and Time to prevent spam

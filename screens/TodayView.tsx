@@ -332,6 +332,11 @@ export default function TodayView({ navigation }: any) {
   const getCardStyle = (card: any) => {
     const title = card.title.toLowerCase();
 
+    // Priority Cards - CHECK FIRST
+    if (title.includes('priority') || title.includes('early bedtime')) {
+      return { bg: '#FFE4D6', text: '#9A3412', label: '#EA580C' }; // Pastel Peach (Matches Exhausted Button)
+    }
+
     // Daily Routine card
     if (title.includes('daily routine')) {
       return { bg: '#DBEAFE', text: '#446084', label: '#3567a4' };
@@ -378,7 +383,7 @@ export default function TodayView({ navigation }: any) {
     }
 
     // Stay Hydrated
-    if (title.includes("hydrate") || title.includes("hydration")) {
+    if (title.includes("hydrate") || title.includes("hydration") || title.includes("hydrating")) {
       return { bg: '#DBEAFE', text: '#446084', label: '#3567a4' };
     }
 
@@ -435,7 +440,7 @@ export default function TodayView({ navigation }: any) {
     }
 
     // Hydration
-    if (t.includes('hydrate') || t.includes('hydration')) {
+    if (t.includes('hydrate') || t.includes('hydration') || t.includes('hydrating')) {
       return 'droplet';
     }
 

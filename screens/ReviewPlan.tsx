@@ -251,7 +251,7 @@ export default function ReviewPlan({ route, navigation }: any) {
         style={styles.backButton}
         onPress={() => navigation.goBack()}
       >
-        <Text style={styles.backButtonText}>← Back to Edit</Text>
+        <Text style={styles.backButtonText}>Back to Edit</Text>
       </TouchableOpacity>
 
       <View style={styles.spacer} />

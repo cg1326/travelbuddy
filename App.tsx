@@ -328,7 +328,7 @@ function SplashScreen() {
 }
 
 function MainApp() {
-  const { isLoading } = usePlans();
+  const { isLoading, plans } = usePlans();
   const [isSplashMinTimeElapsed, setSplashMinTimeElapsed] = React.useState(false);
   const [isSplashMaxTimeElapsed, setSplashMaxTimeElapsed] = React.useState(false);
   const [hasSeenIntro, setHasSeenIntro] = React.useState<boolean | null>(null); // <--- NEW STATE
@@ -376,9 +376,19 @@ function MainApp() {
   useEffect(() => {
     // Handle notification taps
     const unsubscribe = notifee.onForegroundEvent(({ type, detail }) => {
-      if (type === EventType.PRESS) {
-        // Navigate to Today tab when notification is tapped
+      if (type === EventType.PRESS && detail.notification?.data) {
+        const { planName } = detail.notification.data;
+
         if (navigationRef.current) {
+          if (planName) {
+            // Find the plan to navigate to
+            const targetPlan = plans.find(p => p.name === planName);
+            if (targetPlan) {
+              navigationRef.current.navigate('TripDetail', { plan: targetPlan });
+              return;
+            }
+          }
+          // Default fallback
           navigationRef.current.navigate('MainTabs', { screen: 'Today' });
         }
       }

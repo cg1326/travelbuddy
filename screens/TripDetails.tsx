@@ -13,6 +13,7 @@ import {
   StyleProp,
 } from 'react-native';
 import { usePlans } from '../context/PlanContext';
+import { Modal } from 'react-native';
 
 // ───────────────────────────────────────────────
 // Interfaces
@@ -28,6 +29,8 @@ interface Card {
   isInfo?: boolean;
   isDailyRoutine?: boolean;
 }
+
+
 
 interface Phase {
   name: string;
@@ -60,18 +63,57 @@ interface Trip {
   hasConnections: boolean;
   segments: any[];
   connections: any[];
+  arrivalRestStatus?: 'exhausted' | 'ok';
 }
+
+// Helper to determine if we should prompt for exhaustion
+const isWithinArrivalWindow = (trip: Trip): boolean => {
+  if (!trip) return false;
+  // Valid if within 18 hours after landing, or 1 hour before (for early birds/testing)
+  const landingTime = moment(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm');
+  const now = moment();
+  const diffHours = now.diff(landingTime, 'hours', true); // Use float for precision
+  return diffHours >= -1 && diffHours < 18;
+};
 
 // ───────────────────────────────────────────────
 // Component
 // ───────────────────────────────────────────────
 export default function TripDetail({ route, navigation }: any) {
-  const { plan, initialTripIndex, initialPhase } = route.params;
-  const { cardStatuses, updateCardStatus, batchUpdateCardStatuses } = usePlans(); // Use global state
+  const { plan: initialPlan, initialTripIndex, initialPhase } = route.params;
+  const { plans, updatePlan, cardStatuses, updateCardStatus, batchUpdateCardStatuses } = usePlans(); // Use global state
+
+  // Get live plan from context to ensure updates (like exhaustion status) reflect immediately
+  const plan = plans.find(p => p.id === initialPlan.id) || initialPlan;
 
   const [currentTripIndex, setCurrentTripIndex] = useState(initialTripIndex || 0);
   const [activePhase, setActivePhase] = useState<'prepare' | 'travel' | 'adjust'>(initialPhase || 'travel');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+  const [showExhaustionModal, setShowExhaustionModal] = useState(false);
+
+  // Check for Arrival Check-in (only if landed and within window)
+  React.useEffect(() => {
+    if (activePhase === 'adjust') {
+      const currentTrip = plan.trips[currentTripIndex];
+      // Only prompt if status is not set AND we are within the valid window
+      if (currentTrip && currentTrip.arrivalRestStatus === undefined && isWithinArrivalWindow(currentTrip)) {
+        setShowExhaustionModal(true);
+      }
+    }
+  }, [activePhase, currentTripIndex, plan]);
+
+  const handleUpdateRestStatus = (status: 'exhausted' | 'ok') => {
+    const updatedTrips = [...plan.trips];
+    updatedTrips[currentTripIndex] = {
+      ...updatedTrips[currentTripIndex],
+      arrivalRestStatus: status,
+      arrivalRestRecordedAt: new Date().toISOString() // Record timestamp
+    };
+
+    // Update the plan in context (triggers regeneration)
+    updatePlan(plan.id, plan.name, updatedTrips);
+    setShowExhaustionModal(false);
+  };
 
   // OLD: Local state removed
 
@@ -209,6 +251,21 @@ export default function TripDetail({ route, navigation }: any) {
       doneText: "#FFFFFF",
     },
 
+
+
+    // ⚠️ Priority / Recovery - Pastel Orange
+    "Priority": {
+      background: "#FFE4D6",        // Pastel Peach (Matches Exhausted Button)
+      titleColor: "#9A3412",        // Dark Orange/Red text
+      timeColor: "#C2410C",         // Medium Orange
+      textColor: "#9A3412",         // Dark Orange text
+      labelColor: "#EA580C",        // Label color
+      skipBg: "#FED7AA",            // Orange-200
+      skipText: "#7C2D12",
+      doneBg: "#F97316",            // Orange-500
+      doneText: "#FFFFFF",
+    },
+
     "Navy": {
       background: "#1E3A5F",
       titleColor: "#FFFFFF",
@@ -275,7 +332,11 @@ export default function TripDetail({ route, navigation }: any) {
   function getCardTheme(title: string) {
     const t = title.toLowerCase();
 
-    // Daily Routine card - CHECK FIRST
+    // Priority Cards — CHECK FIRST
+    if (t.includes('priority') || t.includes('early bedtime'))
+      return CARD_THEMES.Priority;
+
+    // Daily Routine card
     if (t.includes('daily routine'))
       return CARD_THEMES.Hydrated;
 
@@ -317,7 +378,7 @@ export default function TripDetail({ route, navigation }: any) {
       return CARD_THEMES.ManagingEnergy;
 
     // Stay Hydrated
-    if (t.includes("hydrate") || t.includes("hydration"))
+    if (t.includes("hydrate") || t.includes("hydration") || t.includes("hydrating"))
       return CARD_THEMES.Hydrated;
 
     return CARD_THEMES.Default;
@@ -362,7 +423,7 @@ export default function TripDetail({ route, navigation }: any) {
     }
 
     // Hydration
-    if (t.includes('hydrate') || t.includes('hydration')) {
+    if (t.includes('hydrate') || t.includes('hydration') || t.includes('hydrating')) {
       return 'droplet';
     }
 
@@ -495,6 +556,8 @@ export default function TripDetail({ route, navigation }: any) {
         }
         return false;
       }).sort((a, b) => {
+        // SORTING: Chronological only
+        // Removed Priority hoisting to allow natural timeline flow (e.g. Meal at 9 PM before Sleep at 10:30 PM)
         if (!a.dateTime || !b.dateTime) return 0;
         return moment(a.dateTime).diff(moment(b.dateTime));
       });
@@ -879,6 +942,70 @@ export default function TripDetail({ route, navigation }: any) {
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
+
+      {/* Exhaustion Check-in Modal */}
+      <Modal
+        visible={showExhaustionModal}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: 'white', borderRadius: 20, padding: 24, width: '100%', maxWidth: 400 }}>
+            <Text style={{ fontFamily: 'Jua', fontSize: 24, color: '#0D4C4A', marginBottom: 12, textAlign: 'center' }}>
+              Welcome to {plan.trips[currentTripIndex].to}!
+            </Text>
+            <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#64748B', marginBottom: 24, textAlign: 'center' }}>
+              How are you feeling after your journey? This helps us tailor your recovery plan.
+            </Text>
+
+            <TouchableOpacity
+              style={{
+                backgroundColor: '#FFE4D6', // Pastel Peach
+                paddingVertical: 12,
+                paddingHorizontal: 20,
+                borderRadius: 16,
+                marginBottom: 12,
+                width: '100%',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'flex-start', // Left align to align icons
+                gap: 16, // Increase gap slightly
+              }}
+              onPress={() => handleUpdateRestStatus('exhausted')}
+            >
+              <Icon name="battery-charging" size={24} color="#9A3412" />
+              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#7C2D12', flex: 1 }}>I'm feeling drained and tired</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{
+                backgroundColor: '#D1FAE5', // Pastel Teal
+                paddingVertical: 12,
+                paddingHorizontal: 20,
+                borderRadius: 16,
+                width: '100%',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'flex-start', // Left align to align icons
+                marginBottom: 16,
+                gap: 16,
+              }}
+              onPress={() => handleUpdateRestStatus('ok')}
+            >
+              <Icon name="check-circle" size={24} color="#0F766E" />
+              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#0F766E', flex: 1 }}>I feel reasonably rested</Text>
+            </TouchableOpacity>
+
+            {/* "Ask Me Later" Button */}
+            <TouchableOpacity
+              style={{ padding: 12, alignItems: 'center' }}
+              onPress={() => setShowExhaustionModal(false)}
+            >
+              <Text style={{ fontFamily: 'Jua', fontSize: 14, color: '#94A3B8' }}>Ask me later</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
