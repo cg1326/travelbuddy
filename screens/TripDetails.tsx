@@ -1122,9 +1122,9 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   tooltip: {
     backgroundColor: '#1E293Bcc',
     borderRadius: 8,
-    paddingHorizontal: 8,  // Reduced from 10 to 8
+    paddingHorizontal: 8,
     paddingVertical: 8,
-    maxWidth: 200,
+    width: 190,  // Fixed width to prevent text wrapping and excess space
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -1136,12 +1136,12 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     fontSize: 13,
     color: '#FFFFFF',
     lineHeight: 18,
-    textAlign: 'left',  // Ensure left alignment to reduce right space
+    textAlign: 'left',
   },
   tooltipArrow: {
     position: 'absolute',
     top: -6,
-    right: 14,  // Moved left to point at pencil tip
+    right: 24,  // Increased from 14 to move arrow LEFT toward pencil
     width: 0,
     height: 0,
     borderLeftWidth: 6,
