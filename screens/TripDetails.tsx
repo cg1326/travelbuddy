@@ -90,6 +90,64 @@ export default function TripDetail({ route, navigation }: any) {
   const [activePhase, setActivePhase] = useState<'prepare' | 'travel' | 'adjust'>(initialPhase || 'travel');
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [showExhaustionModal, setShowExhaustionModal] = useState(false);
+  const [showEditTooltip, setShowEditTooltip] = useState(false);
+
+  // Track view count and check tooltip conditions
+  React.useEffect(() => {
+    const checkTooltipConditions = async () => {
+      try {
+        const tooltipShownKey = `@travelbuddy_edit_tooltip_shown_${plan.id}`;
+        const viewCountKey = `@travelbuddy_plan_view_count_${plan.id}`;
+
+        // Check if tooltip already shown for this plan
+        const tooltipShown = await AsyncStorage.getItem(tooltipShownKey);
+        if (tooltipShown === 'true') {
+          return; // Already shown, don't show again
+        }
+
+        // Increment view count
+        const viewCountStr = await AsyncStorage.getItem(viewCountKey);
+        const viewCount = viewCountStr ? parseInt(viewCountStr, 10) : 0;
+        const newViewCount = viewCount + 1;
+        await AsyncStorage.setItem(viewCountKey, newViewCount.toString());
+
+        // Check conditions: within 72 hours OR 3+ views
+        const trip = plan.trips[currentTripIndex];
+        const hoursUntilDeparture = moment(trip.departDate).diff(moment(), 'hours');
+        const within72Hours = hoursUntilDeparture <= 72 && hoursUntilDeparture >= 0;
+        const hasEnoughViews = newViewCount >= 3;
+
+        if (within72Hours || hasEnoughViews) {
+          // Show tooltip after a brief delay to let the screen settle
+          setTimeout(() => setShowEditTooltip(true), 500);
+        }
+      } catch (error) {
+        console.error('Error checking tooltip conditions:', error);
+      }
+    };
+
+    checkTooltipConditions();
+  }, [plan.id, currentTripIndex]);
+
+  const handleDismissTooltip = async () => {
+    setShowEditTooltip(false);
+    try {
+      const tooltipShownKey = `@travelbuddy_edit_tooltip_shown_${plan.id}`;
+      await AsyncStorage.setItem(tooltipShownKey, 'true');
+    } catch (error) {
+      console.error('Error saving tooltip dismissed state:', error);
+    }
+  };
+
+  // Auto-dismiss tooltip after 4 seconds
+  React.useEffect(() => {
+    if (showEditTooltip) {
+      const timer = setTimeout(() => {
+        handleDismissTooltip();
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [showEditTooltip]);
 
   // Check for Arrival Check-in (only if landed and within window)
   React.useEffect(() => {
@@ -676,6 +734,20 @@ export default function TripDetail({ route, navigation }: any) {
         >
           <Icon name="edit-2" size={24} color="#1E293B" />
         </TouchableOpacity>
+
+        {/* Edit Tooltip */}
+        {showEditTooltip && (
+          <TouchableOpacity
+            style={styles.tooltipContainer}
+            onPress={handleDismissTooltip}
+            activeOpacity={1}
+          >
+            <View style={styles.tooltip}>
+              <Text style={styles.tooltipText}>✈️ Flight changed? Tap here to update your plan</Text>
+              <View style={styles.tooltipArrow} />
+            </View>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* ────── Trip Navigation Arrows ────── */}
@@ -1041,6 +1113,43 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   headerContent: { flex: 1 },
   backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   editButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginLeft: 12 },
+  tooltipContainer: {
+    position: 'absolute',
+    top: 50,
+    right: 16,
+    zIndex: 1000,
+  },
+  tooltip: {
+    backgroundColor: '#1E293Bcc',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    maxWidth: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  tooltipText: {
+    fontFamily: 'Jua',
+    fontSize: 13,
+    color: '#FFFFFF',
+    lineHeight: 18,
+  },
+  tooltipArrow: {
+    position: 'absolute',
+    top: -6,
+    right: 8,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderBottomWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#1E293Bcc',
+  },
   planName: { fontFamily: 'Jua', fontSize: 20, color: '#1E293B' },
   subtitle: { fontFamily: 'Jua', fontSize: 14, color: '#64748B', marginTop: 4 },
   errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
