@@ -44,7 +44,7 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
     const trip = activePlan.trips[tripIndex];
     if (!trip) return; // Guard against missing trip
     const departDate = moment(trip.departDate);
-    const arriveDate = moment(trip.arriveDate);
+    const arriveDate = moment(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm');
 
     const processCard = (card: any, time: moment.Moment) => {
       // Check status

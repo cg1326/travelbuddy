@@ -307,8 +307,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
               if (existingTrip && existingTrip.from === newTrip.from && existingTrip.to === newTrip.to) {
                 return {
                   ...newTrip,
-                  arrivalRestStatus: existingTrip.arrivalRestStatus,
-                  arrivalRestRecordedAt: existingTrip.arrivalRestRecordedAt
+                  arrivalRestStatus: newTrip.arrivalRestStatus ?? existingTrip.arrivalRestStatus,
+                  arrivalRestRecordedAt: newTrip.arrivalRestRecordedAt ?? existingTrip.arrivalRestRecordedAt
                 };
               }
               return newTrip;

@@ -69,11 +69,11 @@ interface Trip {
 // Helper to determine if we should prompt for exhaustion
 const isWithinArrivalWindow = (trip: Trip): boolean => {
   if (!trip) return false;
-  // Valid if within 18 hours after landing, or 1 hour before (for early birds/testing)
+  // Valid if within 18 hours after landing, starting 15 minutes after arrival
   const landingTime = moment(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm');
   const now = moment();
   const diffHours = now.diff(landingTime, 'hours', true); // Use float for precision
-  return diffHours >= -1 && diffHours < 18;
+  return diffHours >= 0.25 && diffHours < 18; // 0.25 hours = 15 minutes
 };
 
 // ───────────────────────────────────────────────
