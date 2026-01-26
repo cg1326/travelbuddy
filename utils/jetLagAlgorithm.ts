@@ -1923,7 +1923,8 @@ export function generateAdjustCards(
   // The Daily Routine "Seek Sunlight" card will cover the morning of this arrival day.
   // ALSO SKIP for Stay Home strategy
   if (adjustmentStrategy.percentage > 0 && landingHour >= 4 && landingHour < 10) {
-    let sunStart = landingMoment.clone();
+    // Round up to next :20 mark to ensure card doesn't start before arrival
+    let sunStart = roundUpTo20(landingMoment.clone());
 
     // CONFLICT RESOLUTION: If napping, start sunlight AFTER nap
     if (napEndMoment && napEndMoment.isAfter(sunStart)) {
@@ -1975,7 +1976,8 @@ export function generateAdjustCards(
   // Avoid suggesting it for middle-of-the-night arrivals (e.g. 1 AM) where sleep is priority.
   // SKIP for Stay Home strategy (users should stick to origin habits)
   if (adjustmentStrategy.percentage > 0 && landingHour >= 6 && landingHour < 14) {
-    let caffeineStart = landingMoment.clone();
+    // Round up to next :20 mark to ensure card doesn't start before arrival
+    let caffeineStart = roundUpTo20(landingMoment.clone());
 
     // CONFLICT RESOLUTION: If napping, delay caffeine until AFTER nap
     if (napEndMoment && napEndMoment.isAfter(caffeineStart)) {
