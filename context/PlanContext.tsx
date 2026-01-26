@@ -301,7 +301,10 @@ export function PlanProvider({ children }: { children: ReactNode }) {
             trips: trips.map((newTrip) => {
               // Find matching existing trip by ID to preserve status data
               const existingTrip = plan.trips.find(t => t.id === newTrip.id);
-              if (existingTrip) {
+
+              // Only preserve status if the route hasn't changed significantly (same from/to)
+              // If destination changes (Test Case 6), user likely needs to re-evaluate exhaustion
+              if (existingTrip && existingTrip.from === newTrip.from && existingTrip.to === newTrip.to) {
                 return {
                   ...newTrip,
                   arrivalRestStatus: existingTrip.arrivalRestStatus,
