@@ -298,7 +298,18 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           updatedPlanObj = {
             ...plan,
             name,
-            trips,
+            trips: trips.map((newTrip) => {
+              // Find matching existing trip by ID to preserve status data
+              const existingTrip = plan.trips.find(t => t.id === newTrip.id);
+              if (existingTrip) {
+                return {
+                  ...newTrip,
+                  arrivalRestStatus: existingTrip.arrivalRestStatus,
+                  arrivalRestRecordedAt: existingTrip.arrivalRestRecordedAt
+                };
+              }
+              return newTrip;
+            }),
             jetLagPlans,
           };
           return updatedPlanObj;
