@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { usePlans } from '../context/PlanContext';
 import { Modal } from 'react-native';
+import QuickDelayModal from '../components/QuickDelayModal';
 
 // ───────────────────────────────────────────────
 // Interfaces
@@ -91,6 +92,34 @@ export default function TripDetail({ route, navigation }: any) {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [showExhaustionModal, setShowExhaustionModal] = useState(false);
   const [showEditTooltip, setShowEditTooltip] = useState(false);
+  const [showDelayModal, setShowDelayModal] = useState(false);
+
+  const handleApplyDelay = (minutes: number) => {
+    const updatedTrips = [...plan.trips];
+    // Use plan.trips from context/route to ensure we have the array
+    const tripToUpdate = plan.trips[currentTripIndex];
+    if (!tripToUpdate) return;
+
+    // Parse current times
+    const departMoment = moment(`${tripToUpdate.departDate} ${tripToUpdate.departTime}`, 'YYYY-MM-DD HH:mm');
+    const arriveMoment = moment(`${tripToUpdate.arriveDate} ${tripToUpdate.arriveTime}`, 'YYYY-MM-DD HH:mm');
+
+    // Add delay
+    const newDepart = departMoment.add(minutes, 'minutes');
+    const newArrive = arriveMoment.add(minutes, 'minutes');
+
+    // Update trip in array
+    updatedTrips[currentTripIndex] = {
+      ...tripToUpdate,
+      departDate: newDepart.format('YYYY-MM-DD'),
+      departTime: newDepart.format('HH:mm'),
+      arriveDate: newArrive.format('YYYY-MM-DD'),
+      arriveTime: newArrive.format('HH:mm'),
+    };
+
+    // Call context to update and regenerate
+    updatePlan(plan.id, plan.name, updatedTrips);
+  };
 
   // Track view count and check tooltip conditions
   React.useEffect(() => {
@@ -721,6 +750,14 @@ export default function TripDetail({ route, navigation }: any) {
           <Text style={styles.planName}>{plan.name}</Text>
           <Text style={styles.subtitle}>{moment(trip.departDate).format('MMM D, YYYY')} Departure</Text>
         </View>
+
+        {/* Quick Delay Button */}
+        <TouchableOpacity
+          style={styles.editButton}
+          onPress={() => setShowDelayModal(true)}
+        >
+          <Icon name="clock" size={24} color="#1E293B" />
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.editButton}
           onPress={() => {
@@ -1091,6 +1128,14 @@ export default function TripDetail({ route, navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Quick Delay Modal */}
+      <QuickDelayModal
+        visible={showDelayModal}
+        onClose={() => setShowDelayModal(false)}
+        onApplyDelay={handleApplyDelay}
+        scheduledArriveTime={moment(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm')}
+      />
     </View>
   );
 }
