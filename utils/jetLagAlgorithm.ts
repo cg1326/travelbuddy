@@ -533,15 +533,30 @@ function formatTimeRange12Hour(start: string, end: string): string {
 }
 
 export function getCityTimezone(city: string): string {
-  // Check if it's a city directly
-  if (cityTimezones[city]) {
-    return cityTimezones[city];
+  if (!city) return 'UTC';
+
+  const cleanCity = city.trim();
+
+  // Check exact match first
+  if (cityTimezones[cleanCity]) {
+    return cityTimezones[cleanCity];
   }
+
+  // Check case-insensitive match
+  const lowerCity = cleanCity.toLowerCase();
+  const matchedKey = Object.keys(cityTimezones).find(k => k.toLowerCase() === lowerCity);
+  if (matchedKey) {
+    return cityTimezones[matchedKey];
+  }
+
   // Check if it's an airport code mapping to a city
-  const cityFromCode = airportMappings[city];
-  if (cityFromCode && cityTimezones[cityFromCode]) {
-    return cityTimezones[cityFromCode];
+  const cityFromCode = airportMappings[cleanCity];
+  if (cityFromCode) {
+    if (cityTimezones[cityFromCode]) {
+      return cityTimezones[cityFromCode];
+    }
   }
+
   return 'UTC';
 }
 
