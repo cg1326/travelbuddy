@@ -511,6 +511,23 @@ const roundToNearest5 = (m: moment.Moment): moment.Moment => {
   return rounded.startOf('minute');
 };
 
+// Helper to round UP to next :20 minute mark (e.g., 2:17 PM → 2:20 PM)
+const roundUpTo20 = (m: moment.Moment): moment.Moment => {
+  const rounded = m.clone();
+  const currentMinute = rounded.minute();
+  const remainder = currentMinute % 20;
+
+  if (remainder === 0) {
+    // Already at :00, :20, or :40
+    return rounded.startOf('minute');
+  } else {
+    // Round up to next :20 mark
+    rounded.add(20 - remainder, 'minutes');
+    return rounded.startOf('minute');
+  }
+};
+
+
 function formatTimeRange12Hour(start: string, end: string): string {
   return `${formatTime12Hour(start)} - ${formatTime12Hour(end)}`;
 }
@@ -1930,7 +1947,8 @@ export function generateAdjustCards(
 
   // If land 10 AM - 6 PM - get afternoon sunlight (Skip for Stay Home)
   if (adjustmentStrategy.percentage > 0 && landingHour >= 10 && landingHour < 18) {
-    let sunStart = landingMoment.clone();
+    // Round up to next :20 mark to ensure card doesn't start before arrival
+    let sunStart = roundUpTo20(landingMoment.clone());
 
     // CONFLICT RESOLUTION: If napping, start sunlight AFTER nap
     if (napEndMoment && napEndMoment.isAfter(sunStart)) {
