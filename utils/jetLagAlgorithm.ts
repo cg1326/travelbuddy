@@ -1850,6 +1850,33 @@ export function generateAdjustCards(
     )
     : moment(startDate).startOf('day');
 
+  // TRIGGER: Connection Conflict / Negative Duration Check
+  // If there is a next trip, and we arrive AFTER it departs, the plan is invalid.
+  if (nextTrip) {
+    const nextTripStart = moment.tz(
+      `${nextTrip.departDate} ${nextTrip.departTime}`,
+      'YYYY-MM-DD HH:mm',
+      getCityTimezone(nextTrip.from)
+    );
+
+    // If arrival is after next departure (with minor buffer for tight connections)
+    // Using 0 buffer means strictly impossible.
+    if (landingMoment.isAfter(nextTripStart)) {
+      return [{
+        id: 'conflict-warning',
+        title: 'Connection Conflict Detected',
+        time: 'Plan Paused',
+        icon: 'alert-triangle',
+        color: '#FEF2F2', // Light red bg
+        why: 'Your arrival time overlaps with your next flight\'s departure. This itinerary is not possible.',
+        how: 'Tap to Edit Trip',
+        dateTime: landingMoment.toISOString(),
+        isInfo: false, // Must be false so notification scheduler sees it and suppresses others
+        isDailyRoutine: false
+      }];
+    }
+  }
+
   const landingHour = landingMoment.hour();
   const landingTime = landingMoment.format('h:mm A');
 

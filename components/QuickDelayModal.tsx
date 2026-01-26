@@ -36,9 +36,25 @@ export default function QuickDelayModal({
     };
 
     const applyCustomTime = () => {
-        const original = scheduledArriveTime;
-        const newTime = moment(tempDate);
-        const diffMinutes = newTime.diff(original, 'minutes');
+        // Force "Wall Clock" math. 
+        // We want the difference between the face of the clock on the picker 
+        // and the face of the clock on the scheduled arrival.
+
+        // 1. Get Scheduled Time as simple string (in its home timezone)
+        const originalStr = scheduledArriveTime.format('YYYY-MM-DD HH:mm');
+        const originalWallClock = moment(originalStr, 'YYYY-MM-DD HH:mm'); // Local mode moment
+
+        // 2. Get Picker Time as simple string (it's already local Date)
+        const newTimeStr = moment(tempDate).format('YYYY-MM-DD HH:mm');
+        const newWallClock = moment(newTimeStr, 'YYYY-MM-DD HH:mm'); // Local mode moment
+
+        const diffMinutes = newWallClock.diff(originalWallClock, 'minutes');
+
+        console.log('[QuickDelay] applyCustomTime debug:');
+        console.log('  Original (Wall):', originalStr);
+        console.log('  New (Wall):', newTimeStr);
+        console.log('  Diff minutes:', diffMinutes);
+
         onApplyDelay(diffMinutes);
         onClose();
         setShowPicker(false);

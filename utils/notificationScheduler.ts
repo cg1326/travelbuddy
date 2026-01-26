@@ -136,6 +136,21 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
     }
   });
 
+  // CHECK FOR CONFLICT WARNING
+  // If any trip has a critical conflict, we should suppress all other advice to avoid confusing the user.
+  // We will ONLY schedule the conflict warning notification.
+  const conflictCard = allCards.find(c => c.id === 'conflict-warning');
+  if (conflictCard) {
+    console.warn('[NOTIF] Plan has conflict. Suppressing valid advice.');
+    return [{
+      ...conflictCard,
+      // Ensure it has a valid time for notification (now + 1 min or original time)
+      fullDateTime: moment(conflictCard.dateTime),
+      planName: activePlanName,
+      destination: 'Conflict'
+    }];
+  }
+
   // Deduplicate cards based on ID and Time to prevent spam
   const uniqueCards = [];
   const seenKeys = new Set();
@@ -325,6 +340,8 @@ async function scheduleIOSNotifications(plans: any[], cardStatuses: Record<strin
 // MAIN ENTRY POINT
 // ----------------------------------------------------------------------
 export async function startPersistentNotificationUpdater(plans: any[], cardStatuses: Record<string, string> = {}) {
+  console.warn('[NOTIF-DEBUG] startPersistentNotificationUpdater called');
+
   // Clear any existing Android interval (Zombie Check)
   if ((globalThis as any).jetLagInterval) {
     clearInterval((globalThis as any).jetLagInterval);
@@ -333,8 +350,10 @@ export async function startPersistentNotificationUpdater(plans: any[], cardStatu
 
   if (Platform.OS === 'ios') {
     const settings = await getNotificationSettings();
+    console.warn(`[NOTIF-DEBUG] Settings enabled: ${settings.enabled}`);
+
     if (!settings.enabled) {
-      console.log('[iOS] Notifications disabled in settings, skipping permission request');
+      console.warn('[iOS] Notifications disabled in settings, skipping permission request');
       await notifee.cancelAllNotifications();
       return;
     }

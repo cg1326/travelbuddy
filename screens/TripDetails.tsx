@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import moment from 'moment';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Feather';
 import {
@@ -11,10 +11,15 @@ import {
   ViewStyle,
   TextStyle,
   StyleProp,
+  Alert,
+  Modal,
 } from 'react-native';
 import { usePlans } from '../context/PlanContext';
-import { Modal } from 'react-native';
+
 import QuickDelayModal from '../components/QuickDelayModal';
+import ConflictModal from '../components/ConflictModal';
+import { getCityTimezone } from '../utils/jetLagAlgorithm';
+import moment from 'moment-timezone';
 
 // ───────────────────────────────────────────────
 // Interfaces
@@ -93,6 +98,8 @@ export default function TripDetail({ route, navigation }: any) {
   const [showExhaustionModal, setShowExhaustionModal] = useState(false);
   const [showEditTooltip, setShowEditTooltip] = useState(false);
   const [showDelayModal, setShowDelayModal] = useState(false);
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [pendingUpdateTrips, setPendingUpdateTrips] = useState<any[] | null>(null);
 
   const handleApplyDelay = (minutes: number) => {
     const updatedTrips = [...plan.trips];
@@ -108,6 +115,31 @@ export default function TripDetail({ route, navigation }: any) {
     const newDepart = departMoment.add(minutes, 'minutes');
     const newArrive = arriveMoment.add(minutes, 'minutes');
 
+    const updatedSegments = tripToUpdate.segments ? [...tripToUpdate.segments] : [];
+
+    // Update first segment departure (if exists)
+    if (updatedSegments.length > 0) {
+      const firstSeg = updatedSegments[0];
+      const segDepart = moment(`${firstSeg.departDate} ${firstSeg.departTime}`, 'YYYY-MM-DD HH:mm').add(minutes, 'minutes');
+      updatedSegments[0] = {
+        ...firstSeg,
+        departDate: segDepart.format('YYYY-MM-DD'),
+        departTime: segDepart.format('HH:mm'),
+      };
+    }
+
+    // Update last segment arrival (if exists)
+    if (updatedSegments.length > 0) {
+      const lastIdx = updatedSegments.length - 1;
+      const lastSeg = updatedSegments[lastIdx];
+      const segArrive = moment(`${lastSeg.arriveDate} ${lastSeg.arriveTime}`, 'YYYY-MM-DD HH:mm').add(minutes, 'minutes');
+      updatedSegments[lastIdx] = {
+        ...lastSeg,
+        arriveDate: segArrive.format('YYYY-MM-DD'),
+        arriveTime: segArrive.format('HH:mm'),
+      };
+    }
+
     // Update trip in array
     updatedTrips[currentTripIndex] = {
       ...tripToUpdate,
@@ -115,9 +147,26 @@ export default function TripDetail({ route, navigation }: any) {
       departTime: newDepart.format('HH:mm'),
       arriveDate: newArrive.format('YYYY-MM-DD'),
       arriveTime: newArrive.format('HH:mm'),
+      segments: updatedSegments,
     };
 
-    // Call context to update and regenerate
+    // Check for conflicts with next trip
+    const nextTrip = plan.trips[currentTripIndex + 1];
+    if (nextTrip) {
+      const nextDepart = moment(`${nextTrip.departDate} ${nextTrip.departTime}`, 'YYYY-MM-DD HH:mm');
+      if (newArrive.isAfter(nextDepart)) {
+        // Show custom conflict modal
+        setPendingUpdateTrips(updatedTrips);
+        setShowConflictModal(true);
+        return;
+        return;
+      }
+    }
+
+    performPlanUpdate(updatedTrips);
+  };
+
+  const performPlanUpdate = (updatedTrips: any[]) => {
     updatePlan(plan.id, plan.name, updatedTrips);
   };
 
@@ -923,13 +972,22 @@ export default function TripDetail({ route, navigation }: any) {
                   (card.isInfo || card.title.includes('Routine')) && styles.cardInfo  // Check for "Routine" instead
                 ]}
                 onPress={() => {
+                  if (card.id === 'conflict-warning') {
+                    // Navigate to Edit Trip screen
+                    navigation.navigate('AddTrips', {
+                      mode: 'edit',
+                      existingPlanId: plan.id,
+                      planName: plan.name
+                    });
+                    return;
+                  }
                   if (status !== 'active') {
                     handleUndo(card.id);
                   } else if (!card.isInfo) {
                     toggleCard(card.id);
                   }
                 }}
-                disabled={card.isInfo}
+                disabled={card.isInfo && card.id !== 'conflict-warning'}
                 activeOpacity={0.9}
               >
                 {/* Status badge */}
@@ -1035,8 +1093,8 @@ export default function TripDetail({ route, navigation }: any) {
                   </View>
                 )}
 
-                {/* Actions - only show if active */}
-                {!card.isInfo && status === 'active' && (
+                {/* Actions - only show if active and not conflict warning */}
+                {!card.isInfo && status === 'active' && card.id !== 'conflict-warning' && (
                   <View style={styles.cardActions}>
                     <TouchableOpacity
                       style={[styles.skipButton, { backgroundColor: theme.skipBg } as ViewStyle]}
@@ -1134,7 +1192,32 @@ export default function TripDetail({ route, navigation }: any) {
         visible={showDelayModal}
         onClose={() => setShowDelayModal(false)}
         onApplyDelay={handleApplyDelay}
-        scheduledArriveTime={moment(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm')}
+        scheduledArriveTime={(() => {
+          const lastSegment = trip.segments && trip.segments.length > 0
+            ? trip.segments[trip.segments.length - 1]
+            : null;
+
+          if (lastSegment) {
+            return moment.tz(`${lastSegment.arriveDate} ${lastSegment.arriveTime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to || lastSegment.to));
+          }
+          return moment.tz(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm', getCityTimezone(trip.to));
+        })()}
+      />
+
+      {/* Conflict Warning Modal */}
+      <ConflictModal
+        visible={showConflictModal}
+        onCancel={() => {
+          setShowConflictModal(false);
+          setPendingUpdateTrips(null);
+        }}
+        onUpdateAnyway={() => {
+          if (pendingUpdateTrips) {
+            performPlanUpdate(pendingUpdateTrips);
+          }
+          setShowConflictModal(false);
+          setPendingUpdateTrips(null);
+        }}
       />
     </View>
   );
