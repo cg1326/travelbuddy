@@ -98,8 +98,10 @@ export default function QuickDelayModal({
                     <TouchableOpacity
                         style={styles.customButton}
                         onPress={() => {
-                            setTempDate(scheduledArriveTime.toDate()); // Reset to current schedule on open
-                            setShowPicker(true);
+                            if (!showPicker) {
+                                setTempDate(scheduledArriveTime.toDate()); // Reset to current schedule on open
+                            }
+                            setShowPicker(!showPicker); // Toggle instead of always true
                         }}
                     >
                         <Text style={styles.customButtonText}>Set Custom Arrival Time</Text>

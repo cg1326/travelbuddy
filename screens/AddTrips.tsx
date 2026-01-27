@@ -332,7 +332,7 @@ export default function AddTrips({ route, navigation }: any) {
   // Trip building
   const [currentTripSegments, setCurrentTripSegments] = useState<FlightSegment[]>([]);
   const [completedTrips, setCompletedTrips] = useState<Trip[]>(
-    isEditMode && existingPlan?.trips ? existingPlan.trips : []
+    isEditMode && existingPlan?.trips ? existingPlan.trips.map((t: any) => ({ ...t, segments: t.segments || [] })) : []
   );
 
   // Add these new states:
@@ -1442,7 +1442,7 @@ export default function AddTrips({ route, navigation }: any) {
           <Text style={styles.label}>To</Text>
           <TextInput
             style={[styles.input, toError && styles.inputError]}
-            placeholder="e.g., Atlanta or ATL"
+            placeholder="e.g., London or LHR"
             placeholderTextColor="#94A3B8"
             value={to}
             onChangeText={(text) => {

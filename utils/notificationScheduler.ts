@@ -118,10 +118,10 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
         }
       }
     }
-    // Inject "Welcome / Energy Check" Notification (15 mins after arrival)
+    // Inject "Welcome / Energy Check" Notification (At Arrival)
     // This is a synthetic card just for notifications—it triggers the app to open,
     // where TripDetails.tsx will automatically show the "Exhausted/Ok" modal.
-    const energyCheckTime = arriveDate.clone().add(15, 'minutes');
+    const energyCheckTime = arriveDate.clone();
     if (energyCheckTime.isValid()) {
       allCards.push({
         id: `energy-check-${tripIndex}`,

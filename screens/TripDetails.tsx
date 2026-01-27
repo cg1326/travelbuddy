@@ -20,6 +20,7 @@ import QuickDelayModal from '../components/QuickDelayModal';
 import ConflictModal from '../components/ConflictModal';
 import { getCityTimezone } from '../utils/jetLagAlgorithm';
 import moment from 'moment-timezone';
+import { FeedbackModal } from '../components/FeedbackModal';
 
 // ───────────────────────────────────────────────
 // Interfaces
@@ -56,6 +57,7 @@ interface JetLagPlan {
   };
   strategy?: 'stay_home' | 'adjust';
   suppressPreparePhase?: boolean;
+  suppressAdjustPhase?: boolean;
 }
 
 interface Trip {
@@ -97,9 +99,13 @@ export default function TripDetail({ route, navigation }: any) {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [showExhaustionModal, setShowExhaustionModal] = useState(false);
   const [showEditTooltip, setShowEditTooltip] = useState(false);
+  const [showDelayTooltip, setShowDelayTooltip] = useState(false);
+  const [actionsBottom, setActionsBottom] = useState(0);
   const [showDelayModal, setShowDelayModal] = useState(false);
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [pendingUpdateTrips, setPendingUpdateTrips] = useState<any[] | null>(null);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [hasGivenFeedback, setHasGivenFeedback] = useState(false);
 
   const handleApplyDelay = (minutes: number) => {
     const updatedTrips = [...plan.trips];
@@ -174,7 +180,7 @@ export default function TripDetail({ route, navigation }: any) {
   React.useEffect(() => {
     const checkTooltipConditions = async () => {
       try {
-        const tooltipShownKey = `@travelbuddy_edit_tooltip_shown_${plan.id}`;
+        const tooltipShownKey = `@travelbuddy_edit_tooltip_shown_global`; // Global key for user
         const viewCountKey = `@travelbuddy_plan_view_count_${plan.id}`;
 
         // Check if tooltip already shown for this plan
@@ -210,22 +216,56 @@ export default function TripDetail({ route, navigation }: any) {
   const handleDismissTooltip = async () => {
     setShowEditTooltip(false);
     try {
-      const tooltipShownKey = `@travelbuddy_edit_tooltip_shown_${plan.id}`;
+      const tooltipShownKey = `@travelbuddy_edit_tooltip_shown_global`;
       await AsyncStorage.setItem(tooltipShownKey, 'true');
     } catch (error) {
       console.error('Error saving tooltip dismissed state:', error);
     }
   };
 
-  // Auto-dismiss tooltip after 4 seconds
-  React.useEffect(() => {
-    if (showEditTooltip) {
-      const timer = setTimeout(() => {
-        handleDismissTooltip();
-      }, 4000);
-      return () => clearTimeout(timer);
+  const handleDismissDelayTooltip = async () => {
+    setShowDelayTooltip(false);
+    try {
+      const tooltipShownKey = `@travelbuddy_delay_tooltip_shown_global`; // Global key for user
+      await AsyncStorage.setItem(tooltipShownKey, 'true');
+    } catch (error) {
+      console.error('Error saving delay tooltip dismissed state:', error);
     }
-  }, [showEditTooltip]);
+  };
+
+  // Check for Delay Tooltip (Priority: Secondary)
+  React.useEffect(() => {
+    const checkDelayTooltip = async () => {
+      // 1. Priority Check: Don't show if Edit Tooltip is visible
+      if (showEditTooltip) return;
+
+      // 2. Phase Check: Only show in 'travel' phase or close to departure
+      // Use logic similar to 'within 24h' or matches 'travel'
+      const trip = plan.trips[currentTripIndex];
+      const hoursUntilDeparture = moment(trip.departDate).diff(moment(), 'hours');
+
+      // Show if we are in travel phase active tab OR within 24 hours of flight
+      const isRelevantTime = activePhase === 'travel' || (hoursUntilDeparture <= 24 && hoursUntilDeparture >= -24);
+
+      if (!isRelevantTime) return;
+
+      try {
+        const tooltipShownKey = `@travelbuddy_delay_tooltip_shown_global`;
+        const tooltipShown = await AsyncStorage.getItem(tooltipShownKey);
+
+        if (tooltipShown !== 'true') {
+          // Show it
+          setTimeout(() => setShowDelayTooltip(true), 1000); // 1s delay to stagger execution
+        }
+      } catch (error) {
+        console.error('Error checking delay tooltip:', error);
+      }
+    };
+
+    checkDelayTooltip();
+  }, [showEditTooltip, activePhase, plan.id, currentTripIndex]);
+
+
 
   // Check for Arrival Check-in (only if landed and within window)
   React.useEffect(() => {
@@ -259,6 +299,10 @@ export default function TripDetail({ route, navigation }: any) {
 
   const handleDone = (cardId: string) => {
     updateCardStatus(plan.id, cardId, 'done');
+    // Trigger Feedback Modal if "Arrived" card is done
+    if (cardId === 'adjust-arrival' && !hasGivenFeedback) {
+      setTimeout(() => setShowFeedbackModal(true), 800);
+    }
   };
 
   const handleUndo = (cardId: string) => {
@@ -598,7 +642,7 @@ export default function TripDetail({ route, navigation }: any) {
     if (activePhase === 'prepare') {
       return tripPlan.strategy === 'stay_home'
         ? `Pre-Trip – ${currentPhase.dateRange}`
-        : `Preparation Phase – ${currentPhase.dateRange}`;
+        : `Preparation Phase: ${currentPhase.dateRange}`;
     }
     if (activePhase === 'travel') {
       if (tripPlan.strategy === 'stay_home') {
@@ -606,12 +650,12 @@ export default function TripDetail({ route, navigation }: any) {
         // Removed - just use standard Travel Day label
       }
       const isSingleDate = !currentPhase.dateRange.includes('-');
-      return `Travel ${isSingleDate ? 'Day' : 'Days'} – ${currentPhase.dateRange}`;
+      return `Travel ${isSingleDate ? 'Day' : 'Days'}: ${currentPhase.dateRange}`;
     }
     // Adjust
     return tripPlan.strategy === 'stay_home'
       ? `Trip Schedule – ${currentPhase.dateRange}`
-      : `Adjustment Phase – ${currentPhase.dateRange}`;
+      : `Adjust Phase: ${currentPhase.dateRange}`;
   };
 
   // FIX #2: Filter cards based on whether showing arrival day or daily routine
@@ -621,9 +665,9 @@ export default function TripDetail({ route, navigation }: any) {
     if (activePhase !== 'adjust') {
       cards = currentPhase.cards;
 
-      // MERGE LOGIC: If strategy is 'stay_home' and we are looking at 'travel' phase,
+      // MERGE LOGIC: If strategy is 'stay_home' AND NOT suppressed, and we are looking at 'travel' phase,
       // append the 'adjust' phase cards to the end of the list.
-      if (tripPlan.strategy === 'stay_home' && activePhase === 'travel') {
+      if (tripPlan.strategy === 'stay_home' && !tripPlan.suppressAdjustPhase && activePhase === 'travel') {
         // Sort travel cards first
         const travelCards = [...cards].sort((a, b) => {
           if (!a.dateTime || !b.dateTime) return 0;
@@ -800,67 +844,88 @@ export default function TripDetail({ route, navigation }: any) {
           <Text style={styles.subtitle}>{moment(trip.departDate).format('MMM D, YYYY')} Departure</Text>
         </View>
 
-        {/* Quick Delay Button */}
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => setShowDelayModal(true)}
+        <View
+          style={{ flexDirection: 'row', alignItems: 'center' }}
+          onLayout={(e) => setActionsBottom(e.nativeEvent.layout.y + e.nativeEvent.layout.height)}
         >
-          <Icon name="clock" size={24} color="#1E293B" />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.editButton}
-          onPress={() => {
-            // Navigate to AddTrips with minimal params to avoid serialization issues
-            navigation.navigate('AddTrips', {
-              mode: 'edit',
-              planName: plan.name,
-              existingPlanId: plan.id
-            });
-          }}
-        >
-          <Icon name="edit-2" size={24} color="#1E293B" />
-        </TouchableOpacity>
-
-        {/* Edit Tooltip */}
-        {showEditTooltip && (
+          {/* Quick Delay Button */}
           <TouchableOpacity
-            style={styles.tooltipContainer}
-            onPress={handleDismissTooltip}
-            activeOpacity={1}
+            style={styles.editButton}
+            onPress={() => setShowDelayModal(true)}
           >
-            <View style={styles.tooltip}>
-              <Text style={styles.tooltipText}>Flight changed? Tap here to update your plan</Text>
-              <View style={styles.tooltipArrow} />
-            </View>
+            <Icon name="clock" size={24} color="#1E293B" />
           </TouchableOpacity>
-        )}
-      </View>
-
-      {/* ────── Trip Navigation Arrows ────── */}
-      {plan.trips.length > 1 && (
-        <View style={styles.tripNavigation}>
           <TouchableOpacity
-            style={[styles.navButton, currentTripIndex === 0 && styles.navButtonDisabled]}
-            onPress={goToPreviousTrip}
-            disabled={currentTripIndex === 0}>
-            <Icon name="arrow-left" size={24} color="#0D4C4A" />
-          </TouchableOpacity>
-
-          <View style={styles.tripInfo}>
-            <Text style={styles.tripTitle}>{trip.from} {'>'} {trip.to}</Text>
-          </View>
-
-          <TouchableOpacity
-            style={[
-              styles.navButton,
-              currentTripIndex === plan.trips.length - 1 && styles.navButtonDisabled,
-            ]}
-            onPress={goToNextTrip}
-            disabled={currentTripIndex === plan.trips.length - 1}>
-            <Icon name="arrow-right" size={24} color="#0D4C4A" />
+            style={styles.editButton}
+            onPress={() => {
+              // Navigate to AddTrips with minimal params to avoid serialization issues
+              navigation.navigate('AddTrips', {
+                mode: 'edit',
+                planName: plan.name,
+                existingPlanId: plan.id
+              });
+            }}
+          >
+            <Icon name="edit-2" size={24} color="#1E293B" />
           </TouchableOpacity>
         </View>
+      </View>
+
+      {showEditTooltip && (
+        <View style={[styles.tooltipContainer, { top: actionsBottom + 6 }]}>
+          <View style={styles.tooltip}>
+            <Text style={styles.tooltipText}>Flight changed?</Text>
+            <Text style={styles.tooltipSubText}>Tap the pencil to update plan</Text>
+            <TouchableOpacity onPress={handleDismissTooltip} style={styles.tooltipDismissButton}>
+              <Text style={styles.tooltipDismissText}>Dismiss</Text>
+            </TouchableOpacity>
+            <View style={styles.tooltipArrow} />
+          </View>
+        </View>
       )}
+
+      {/* Delay Tooltip (Mutually Exclusive with Edit Tooltip) */}
+      {!showEditTooltip && showDelayTooltip && (
+        <View style={[styles.delayTooltipContainer, { top: actionsBottom + 6 }]}>
+          <View style={styles.tooltip}>
+            <Text style={styles.tooltipText}>Running late?</Text>
+            <Text style={styles.tooltipSubText}>Tap the clock to add a delay</Text>
+            <TouchableOpacity onPress={handleDismissDelayTooltip} style={styles.tooltipDismissButton}>
+              <Text style={styles.tooltipDismissText}>Dismiss</Text>
+            </TouchableOpacity>
+            {/* Arrow adjusted for clock icon position */}
+            <View style={[styles.tooltipArrow, { right: 74 }]} />
+          </View>
+        </View>
+      )}
+
+      {/* ────── Trip Navigation Arrows ────── */}
+      {
+        plan.trips.length > 1 && (
+          <View style={styles.tripNavigation}>
+            <TouchableOpacity
+              style={[styles.navButton, currentTripIndex === 0 && styles.navButtonDisabled]}
+              onPress={goToPreviousTrip}
+              disabled={currentTripIndex === 0}>
+              <Icon name="arrow-left" size={24} color="#0D4C4A" />
+            </TouchableOpacity>
+
+            <View style={styles.tripInfo}>
+              <Text style={styles.tripTitle}>{trip.from} {'>'} {trip.to}</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[
+                styles.navButton,
+                currentTripIndex === plan.trips.length - 1 && styles.navButtonDisabled,
+              ]}
+              onPress={goToNextTrip}
+              disabled={currentTripIndex === plan.trips.length - 1}>
+              <Icon name="arrow-right" size={24} color="#0D4C4A" />
+            </TouchableOpacity>
+          </View>
+        )
+      }
 
       {/* ────── Phase Tabs (Prepare / Travel / Adjust) ────── */}
       <View style={styles.phaseTabs}>
@@ -873,7 +938,8 @@ export default function TripDetail({ route, navigation }: any) {
             if (tripPlan.suppressPreparePhase && phaseKey === 'prepare') return false;
 
             // NEW: For Stay Home trips, ALSO hide 'adjust' tab, because we will merge it into 'travel'
-            if (tripPlan.strategy === 'stay_home' && phaseKey === 'adjust') return false;
+            // OR if explicitly suppressed (e.g. rapid connection)
+            if ((tripPlan.strategy === 'stay_home' || tripPlan.suppressAdjustPhase) && phaseKey === 'adjust') return false;
 
             return true;
           })
@@ -919,15 +985,17 @@ export default function TripDetail({ route, navigation }: any) {
       </View>
 
       {/* ────── Reset Button (for Prepare/Adjust) ────── */}
-      {activePhase !== 'travel' && hasAnyStatusChanges && (
-        <View style={styles.resetButtonContainer}>
-          <TouchableOpacity style={styles.resetButton} onPress={handleResetAll}>
-            <Text style={styles.resetButtonText}>
-              Reset All Cards ({statusCounts.done} done, {statusCounts.skipped} skipped)
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      {
+        activePhase !== 'travel' && hasAnyStatusChanges && (
+          <View style={styles.resetButtonContainer}>
+            <TouchableOpacity style={styles.resetButton} onPress={handleResetAll}>
+              <Text style={styles.resetButtonText}>
+                Reset All Cards ({statusCounts.done} done, {statusCounts.skipped} skipped)
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )
+      }
 
       {/* ────── Sticky Section Header (navy bar) ────── */}
       <View style={styles.sectionHeader}>
@@ -1148,13 +1216,11 @@ export default function TripDetail({ route, navigation }: any) {
                 width: '100%',
                 flexDirection: 'row',
                 alignItems: 'center',
-                justifyContent: 'flex-start', // Left align to align icons
-                gap: 16, // Increase gap slightly
+                justifyContent: 'center', // Centered
               }}
               onPress={() => handleUpdateRestStatus('exhausted')}
             >
-              <Icon name="battery-charging" size={24} color="#9A3412" />
-              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#7C2D12', flex: 1 }}>I'm feeling drained and tired</Text>
+              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#7C2D12', textAlign: 'center' }}>I'm feeling drained and tired</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -1166,14 +1232,12 @@ export default function TripDetail({ route, navigation }: any) {
                 width: '100%',
                 flexDirection: 'row',
                 alignItems: 'center',
-                justifyContent: 'flex-start', // Left align to align icons
+                justifyContent: 'center', // Centered
                 marginBottom: 16,
-                gap: 16,
               }}
               onPress={() => handleUpdateRestStatus('ok')}
             >
-              <Icon name="check-circle" size={24} color="#0F766E" />
-              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#0F766E', flex: 1 }}>I feel reasonably rested</Text>
+              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#0F766E', textAlign: 'center' }}>I feel reasonably rested</Text>
             </TouchableOpacity>
 
             {/* "Ask Me Later" Button */}
@@ -1186,6 +1250,17 @@ export default function TripDetail({ route, navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      <FeedbackModal
+        visible={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        onSubmit={(rating, comment) => {
+          console.log('Feedback:', rating, comment);
+          setHasGivenFeedback(true);
+          setShowFeedbackModal(false);
+          Alert.alert('Thank You!', 'Your feedback helps us improve.');
+        }}
+      />
 
       {/* Quick Delay Modal */}
       <QuickDelayModal
@@ -1219,7 +1294,7 @@ export default function TripDetail({ route, navigation }: any) {
           setPendingUpdateTrips(null);
         }}
       />
-    </View>
+    </View >
   );
 }
 
@@ -1243,16 +1318,20 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   editButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginLeft: 12 },
   tooltipContainer: {
     position: 'absolute',
-    top: 102,
     right: 8,
+    zIndex: 1000,
+  },
+  delayTooltipContainer: {
+    position: 'absolute',
+    right: 8, // Same right anchor, but we shift the arrow
     zIndex: 1000,
   },
   tooltip: {
     backgroundColor: '#1E293Bcc',
     borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    width: 175,  // Reduced from 185 to eliminate right-side space
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    width: 190, // Slightly reduced from 200
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
@@ -1261,15 +1340,35 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   },
   tooltipText: {
     fontFamily: 'Jua',
-    fontSize: 13,
+    fontSize: 16, // Matches cardTitle
     color: '#FFFFFF',
-    lineHeight: 18,
+    lineHeight: 20, // Increased line height
     textAlign: 'left',
+    marginBottom: 4, // Increased spacing
+  },
+  tooltipSubText: {
+    fontFamily: 'Jua',
+    fontSize: 13, // Matches cardExpandedLabel
+    color: '#CBD5E1',
+    lineHeight: 18, // Increased line height
+    textAlign: 'left',
+    marginBottom: 8,
+  },
+  tooltipDismissButton: {
+    alignSelf: 'center', // Centered
+    paddingVertical: 4,
+    paddingHorizontal: 0,
+  },
+  tooltipDismissText: {
+    fontFamily: 'Jua',
+    fontSize: 12,
+    color: '#5EDAD9', // Cyan color
+    textDecorationLine: 'underline',
   },
   tooltipArrow: {
     position: 'absolute',
     top: -6,
-    right: 28,  // Increased from 24 to move arrow slightly more left
+    right: 28,
     width: 0,
     height: 0,
     borderLeftWidth: 6,

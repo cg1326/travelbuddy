@@ -129,10 +129,9 @@ function PlansScreen({ navigation }: any) {
                               style={styles.editButton}
                               onPress={(e) => {
                                 e.stopPropagation();
-                                navigation.navigate('AddTrips', {
+                                navigation.navigate('AddPlanName', {
                                   mode: 'edit',
-                                  planName: plan.name,
-                                  existingPlanId: plan.id
+                                  existingPlan: plan
                                 });
                               }}
                             >
@@ -203,10 +202,9 @@ function PlansScreen({ navigation }: any) {
                                 style={styles.editButton}
                                 onPress={(e) => {
                                   e.stopPropagation();
-                                  navigation.navigate('AddTrips', {
+                                  navigation.navigate('AddPlanName', {
                                     mode: 'edit',
-                                    planName: plan.name,
-                                    existingPlanId: plan.id
+                                    existingPlan: plan
                                   });
                                 }}
                               >
@@ -386,7 +384,10 @@ function MainApp() {
             // Find the plan to navigate to
             const targetPlan = plans.find(p => p.name === planName);
             if (targetPlan) {
-              navigationRef.current.navigate('TripDetail', { plan: targetPlan });
+              navigationRef.current.navigate('TripDetail', {
+                plan: targetPlan,
+                initialPhase: 'adjust' // Open to Adjust phase for Welcome notification
+              });
               return;
             }
           }
@@ -441,7 +442,7 @@ function MainApp() {
             name="AddPlanName"
             component={AddPlanName}
             options={{
-              title: 'Create Plan',
+              title: 'Create New Plan',
               headerBackTitle: 'Back',
               headerBackVisible: true,
               headerTitleStyle: {

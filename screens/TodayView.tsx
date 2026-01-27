@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-nati
 import { usePlans } from '../context/PlanContext';
 import moment from 'moment-timezone';
 import Icon from 'react-native-vector-icons/Feather';
+import { ProgressBar } from '../components/ProgressBar';
 
 function formatTo12Hour(time24: string): string {
   if (!time24) return '';
@@ -545,6 +546,31 @@ export default function TodayView({ navigation }: any) {
           <Icon name="send" size={24} color="#000000" />
         </View>
       )}
+
+      {/* Progress Bar - only show if there's an active plan */}
+      {activePlan && currentTrip && (() => {
+        // Calculate progress for the current trip
+        const allCards = [
+          ...currentTrip.phases.prepare.cards,
+          ...currentTrip.phases.travel.cards,
+          ...currentTrip.phases.adjust.cards
+        ];
+        const completedCount = allCards.filter(c => {
+          const status = cardStatuses[`${activePlan.id}_${c.id}`];
+          return status === 'done' || status === 'skipped';
+        }).length;
+        const progressRatio = allCards.length > 0 ? completedCount / allCards.length : 0;
+
+        return (
+          <View style={{ marginBottom: 24 }}>
+            <ProgressBar
+              progress={progressRatio}
+              label="Plan Progress"
+              color="#5EDAD9"
+            />
+          </View>
+        );
+      })()}
 
       {/* Coming up label */}
       <Text style={styles.comingUpLabel}>Coming up...</Text>

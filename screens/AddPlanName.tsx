@@ -14,14 +14,14 @@ export default function AddPlanName({ route, navigation }: any) {
       navigation.navigate('AddTrips', {
         planName,
         mode: isEditMode ? 'edit' : 'create',
-        existingPlan: isEditMode ? existingPlan : undefined
+        existingPlanId: isEditMode && existingPlan ? existingPlan.id : undefined
       });
     }
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{isEditMode ? 'Edit Plan' : 'Create New Plan'}</Text>
+      <Text style={styles.title}>{isEditMode ? 'Edit Plan' : 'Name Your Plan'}</Text>
 
       <View style={styles.card}>
         <TextInput
