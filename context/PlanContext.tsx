@@ -280,16 +280,32 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const updatePlan = (id: string, name: string, trips: Trip[]): Plan | undefined => {
     try {
       console.log('🟡 updatePlan() called');
-      console.log('➡️ Plan ID:', id);
-      console.log('➡️ Plan name:', name);
-      console.log('✈️ Trips passed in:', JSON.stringify(trips, null, 2));
+      const existingPlan = plans.find(p => p.id === id);
 
-      const jetLagPlans = trips.map((trip) => {
-        console.log('🧮 Generating jet lag plan for trip:', trip.from, '→', trip.to);
-        return generateJetLagPlan(trip, trips, userSettings);
+      // 1. Reconcile trips to preserve status BEFORE generating advice
+      // This ensures generateJetLagPlan sees the correct arrivalRestStatus (e.g. 'exhausted')
+      const reconciledTrips = trips.map((newTrip) => {
+        const existingTrip = existingPlan?.trips.find(t => t.id === newTrip.id);
+
+        // Robust location comparison (trimmed and case-insensitive)
+        const isSameRoute = existingTrip &&
+          existingTrip.from.trim().toLowerCase() === newTrip.from.trim().toLowerCase() &&
+          existingTrip.to.trim().toLowerCase() === newTrip.to.trim().toLowerCase();
+
+        if (isSameRoute) {
+          return {
+            ...newTrip,
+            arrivalRestStatus: newTrip.arrivalRestStatus ?? existingTrip.arrivalRestStatus,
+            arrivalRestRecordedAt: newTrip.arrivalRestRecordedAt ?? existingTrip.arrivalRestRecordedAt
+          };
+        }
+        return newTrip;
       });
 
-      console.log('✅ Jet lag plans generated successfully.');
+      // 2. Generate advice using RECONCILED trips
+      const jetLagPlans = reconciledTrips.map((trip) => {
+        return generateJetLagPlan(trip, reconciledTrips, userSettings);
+      });
 
       let updatedPlanObj: Plan | undefined;
 
@@ -298,21 +314,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           updatedPlanObj = {
             ...plan,
             name,
-            trips: trips.map((newTrip) => {
-              // Find matching existing trip by ID to preserve status data
-              const existingTrip = plan.trips.find(t => t.id === newTrip.id);
-
-              // Only preserve status if the route hasn't changed significantly (same from/to)
-              // If destination changes (Test Case 6), user likely needs to re-evaluate exhaustion
-              if (existingTrip && existingTrip.from === newTrip.from && existingTrip.to === newTrip.to) {
-                return {
-                  ...newTrip,
-                  arrivalRestStatus: newTrip.arrivalRestStatus ?? existingTrip.arrivalRestStatus,
-                  arrivalRestRecordedAt: newTrip.arrivalRestRecordedAt ?? existingTrip.arrivalRestRecordedAt
-                };
-              }
-              return newTrip;
-            }),
+            trips: reconciledTrips,
             jetLagPlans,
           };
           return updatedPlanObj;

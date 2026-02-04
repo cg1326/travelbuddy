@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -210,6 +210,8 @@ function checkOverlappingTrips(
 interface FlightSegment {
   from: string;
   to: string;
+  fromTz?: string;
+  toTz?: string;
   departDate: string;
   departTime: string;
   arriveDate: string;
@@ -220,6 +222,8 @@ interface Trip {
   id: string;
   from: string;
   to: string;
+  fromTz?: string;
+  toTz?: string;
   departDate: string;
   departTime: string;
   arriveDate: string;
@@ -241,12 +245,16 @@ export default function AddTrips({ route, navigation }: any) {
     ? plans.find(p => p.id === existingPlanId)
     : null;
 
+
+
   // Mode selection
   const [inputMode, setInputMode] = useState<'simple' | 'detailed'>('simple');
 
   // Current segment being built
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [fromTz, setFromTz] = useState<string | undefined>(undefined);
+  const [toTz, setToTz] = useState<string | undefined>(undefined);
   const [departDate, setDepartDate] = useState('');
   const [departTime, setDepartTime] = useState('');
   const [arriveDate, setArriveDate] = useState('');
@@ -535,6 +543,7 @@ export default function AddTrips({ route, navigation }: any) {
       if (dep) {
         setDepartDate(dep.date);
         setDepartTime(dep.time);
+        setFromTz(flightData.departure.timezone);
         setSelectedDepartDate(moment(flightData.departure.time).toDate());
         setSelectedDepartTime(moment(flightData.departure.time).toDate());
       }
@@ -542,6 +551,7 @@ export default function AddTrips({ route, navigation }: any) {
       if (arr) {
         setArriveDate(arr.date);
         setArriveTime(arr.time);
+        setToTz(flightData.arrival.timezone);
         setSelectedArriveDate(moment(flightData.arrival.time).toDate());
         setSelectedArriveTime(moment(flightData.arrival.time).toDate());
       }
@@ -744,6 +754,8 @@ export default function AddTrips({ route, navigation }: any) {
     const segment: FlightSegment = {
       from: resolvedFrom,
       to: resolvedTo,
+      fromTz: fromTz || getCityTimezone(from),
+      toTz: toTz || getCityTimezone(to),
       departDate,
       departTime,
       arriveDate,
@@ -789,6 +801,8 @@ export default function AddTrips({ route, navigation }: any) {
               const correctedSegment: FlightSegment = {
                 from: correctedFrom,
                 to: correctedTo,
+                fromTz: getCityTimezone(correctedFrom),
+                toTz: getCityTimezone(correctedTo),
                 departDate,
                 departTime,
                 arriveDate,
@@ -865,6 +879,8 @@ export default function AddTrips({ route, navigation }: any) {
       id: isEditingTrip && editingTripId ? editingTripId : Date.now().toString(),
       from: resolvedFrom,
       to: resolvedTo,
+      fromTz: segment.fromTz,
+      toTz: segment.toTz,
       departDate,
       departTime,
       arriveDate,
@@ -872,11 +888,6 @@ export default function AddTrips({ route, navigation }: any) {
       hasConnections: false,
       segments: [segment],
       connections: [],
-      // Preserve arrival rest status if it exists
-      ...(existingTrip?.arrivalRestStatus && {
-        arrivalRestStatus: existingTrip.arrivalRestStatus,
-        arrivalRestRecordedAt: existingTrip.arrivalRestRecordedAt
-      })
     };
 
     if (isEditingTrip && editingTripId) {
@@ -986,6 +997,8 @@ export default function AddTrips({ route, navigation }: any) {
               const segment: FlightSegment = {
                 from: correctedFrom,
                 to: correctedTo,
+                fromTz: getCityTimezone(correctedFrom),
+                toTz: getCityTimezone(correctedTo),
                 departDate,
                 departTime,
                 arriveDate,
@@ -1033,6 +1046,8 @@ export default function AddTrips({ route, navigation }: any) {
     const segment: FlightSegment = {
       from: resolvedFrom,
       to: resolvedTo,
+      fromTz: fromTz || getCityTimezone(from),
+      toTz: toTz || getCityTimezone(to),
       departDate,
       departTime,
       arriveDate,
@@ -1052,6 +1067,8 @@ export default function AddTrips({ route, navigation }: any) {
     // Pre-fill next segment
     setFrom(to);
     setTo('');
+    setFromTz(toTz || getCityTimezone(to));
+    setToTz(undefined);
     setDepartDate(arriveDate);
     setDepartTime('');
     setArriveDate('');
@@ -1184,8 +1201,10 @@ export default function AddTrips({ route, navigation }: any) {
 
     const trip: Trip = {
       id: isEditingTrip && editingTripId ? editingTripId : Date.now().toString(),
-      from: firstSegment.from,
-      to: lastSegment.to,
+      from: firstSegment.from.trim(),
+      to: lastSegment.to.trim(),
+      fromTz: firstSegment.fromTz,
+      toTz: lastSegment.toTz,
       departDate: firstSegment.departDate,
       departTime: firstSegment.departTime,
       arriveDate: lastSegment.arriveDate,
@@ -1285,9 +1304,25 @@ export default function AddTrips({ route, navigation }: any) {
 
 
   return (
-    <>
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Add Flights</Text>
+    <View style={styles.container}>
+      {/* ────── Custom Header ────── */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+        >
+          <Icon name="chevron-left" size={28} color="#1E293B" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{isEditMode ? 'Edit Flights' : 'Add Flights'}</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.subtitle}>Choose how to add your flights</Text>
 
         {/* Mode selector */}
@@ -1625,7 +1660,7 @@ export default function AddTrips({ route, navigation }: any) {
         )}
 
         {/* Show segment sequence error */}
-        {inputMode === 'detailed' && segmentSequenceError && (
+        {inputMode === 'detailed' && !!segmentSequenceError && (
           <View style={styles.errorContainer}>
             <Text style={styles.errorText}>{segmentSequenceError}</Text>
           </View>
@@ -1785,6 +1820,7 @@ export default function AddTrips({ route, navigation }: any) {
       >
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
           style={styles.modalOverlay}
         >
           <View style={styles.modalContent}>
@@ -1804,7 +1840,12 @@ export default function AddTrips({ route, navigation }: any) {
             <Text style={styles.label}>Date of Flight</Text>
             <TouchableOpacity
               style={styles.dateTimeDisplay}
-              onPress={() => setShowImportDatePicker(true)}
+              onPress={() => {
+                Keyboard.dismiss();
+                setTimeout(() => {
+                  setShowImportDatePicker(true);
+                }, 100);
+              }}
             >
               <Text style={styles.dateTimeText}>
                 {moment(importDate).format('MMM D, YYYY')}
@@ -1916,8 +1957,6 @@ export default function AddTrips({ route, navigation }: any) {
         </View>
       </Modal>
 
-
-
       {/* Flight Selection Modal (Multiple Routes) */}
       <Modal
         visible={showFlightSelection}
@@ -1973,7 +2012,7 @@ export default function AddTrips({ route, navigation }: any) {
           </View>
         </View>
       </Modal>
-    </>
+    </View>
   );
 }
 
@@ -1981,11 +2020,35 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    height: 44,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  headerTitle: {
+    fontFamily: 'Jua',
+    fontSize: 18,
+    color: '#1E293B',
+    textAlign: 'center',
+    flex: 1,
+  },
+  scrollContent: {
     padding: 16,
+    paddingTop: 8,
   },
   title: {
     fontFamily: 'Jua',
-    fontSize: 28,
+    fontSize: 18,
     color: '#1E293B',
     marginBottom: 8,
   },

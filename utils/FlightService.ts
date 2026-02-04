@@ -18,7 +18,6 @@ export interface FlightResult {
     status: string;
 }
 
-// TODO: Replace with your actual Firebase Project ID
 const PROJECT_ID = "travel-buddy-jet-lag-app";
 const REGION = "us-central1";
 
@@ -71,7 +70,7 @@ export const lookupFlight = async (flightNumber: string, date?: string): Promise
         const query = `?flight=${encodeURIComponent(cleanFlight)}&date=${encodeURIComponent(date || '')}`;
         const fullUrl = `${url}${query}`;
 
-        console.log("Looking up flight:", fullUrl);
+        // console.log("Looking up flight:", fullUrl);
 
         const response = await fetch(fullUrl, {
             method: 'GET',
@@ -89,7 +88,7 @@ export const lookupFlight = async (flightNumber: string, date?: string): Promise
         return data as FlightResult;
 
     } catch (error) {
-        console.log("Flight Lookup Error:", error); // Log quietly to avoid Red Box
+        // console.log("Flight Lookup Error:", error); 
         throw error;
     }
 };

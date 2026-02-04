@@ -6,20 +6,23 @@ import {
   ScrollView,
   StyleSheet,
   Alert,
+  Platform,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Feather';
 import { usePlans } from '../context/PlanContext';
 import { generateJetLagPlan, getDefaultUserSettings, calculateStayDuration, Trip } from '../utils/jetLagAlgorithm';
 import { checkForConnectionConflicts } from '../utils/conflictDetection';
 import moment from 'moment';
-import Icon from 'react-native-vector-icons/Feather';
 import ConflictModal from '../components/ConflictModal';
 
 // Local interfaces removed in favor of importing from jetLagAlgorithm
 // (or if necessary, keep them matching, but we should use the imported one to avoid issues)
 
+import { Analytics } from '../utils/Analytics'; // Import Analytics
+
 export default function ReviewPlan({ route, navigation }: any) {
   const { planName, trips: initialTrips } = route.params;
-  const { addPlan, updatePlan } = usePlans();
+  const { addPlan, updatePlan, plans } = usePlans(); // Get plans to count them
 
   // Local state for trips to handling modifications (preferences)
   const [localTrips, setLocalTrips] = useState<Trip[]>(initialTrips);
@@ -83,12 +86,23 @@ export default function ReviewPlan({ route, navigation }: any) {
       if (mode === 'edit' && existingPlanId) {
         // UPDATE existing plan
         console.log('✏️ Updating existing plan');
-        console.log('✏️ Updating existing plan');
         savedPlan = updatePlan(existingPlanId, planName, localTrips);
       } else {
         // CREATE new plan
         console.log('➕ Creating new plan');
         savedPlan = addPlan(planName, localTrips);
+
+        // ANALYTICS: Log Trip Created
+        if (savedPlan) {
+          const planCount = plans.length + 1;
+          const firstTrip = savedPlan.trips[0];
+          const lastTrip = savedPlan.trips[savedPlan.trips.length - 1];
+          const start = moment(firstTrip.departDate);
+          const end = moment(lastTrip.arriveDate);
+          const duration = end.diff(start, 'days') + 1; // Inclusive
+
+          Analytics.logTripCreated(planCount, duration);
+        }
       }
 
       if (savedPlan) {
@@ -170,8 +184,25 @@ export default function ReviewPlan({ route, navigation }: any) {
   };
 
   return (
-    <>
-      <ScrollView style={styles.container}>
+    <View style={styles.container}>
+      {/* ────── Custom Header ────── */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.headerBackButton}
+          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+        >
+          <Icon name="chevron-left" size={28} color="#1E293B" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Review Plan</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.title}>Review Your Plan</Text>
         <Text style={styles.subtitle}>"{planName}"</Text>
 
@@ -299,7 +330,7 @@ export default function ReviewPlan({ route, navigation }: any) {
         onCancel={handleCancelConflict}
         onUpdateAnyway={handleUpdateAnyway}
       />
-    </>
+    </View >
   );
 }
 
@@ -307,12 +338,35 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8FAFC',
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    height: 44,
+  },
+  headerBackButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  headerTitle: {
+    fontFamily: 'Jua',
+    fontSize: 18,
+    color: '#1E293B',
+    textAlign: 'center',
+    flex: 1,
+  },
+  scrollContent: {
     padding: 16,
-    paddingTop: 60,
+    paddingTop: 8,
   },
   title: {
     fontFamily: 'Jua',
-    fontSize: 28,
+    fontSize: 18,
     color: '#1E293B',
     marginBottom: 8,
   },

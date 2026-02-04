@@ -46,13 +46,18 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
     const departDate = moment(trip.departDate);
     const arriveDate = moment(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm');
 
-    const processCard = (card: any, time: moment.Moment) => {
+    const processCard = (card: any, time: moment.Moment, phase: 'prepare' | 'travel' | 'adjust') => {
       // Check status
       const statusKey = `${activePlan.id}_${card.id}`;
       const status = cardStatuses[statusKey];
 
-      // If skipped or done, do NOT include in the schedule list
-      if (status === 'skipped' || status === 'done') return;
+      // If skipped, do NOT include.
+      if (status === 'skipped') return;
+
+      // If done, generally do NOT include, EXCEPT for the "Arrival" card.
+      // The user wants the "Welcome to [City]" notification to fire as a welcome message
+      // even if they checked it off early.
+      if (status === 'done' && card.id !== 'adjust-arrival') return;
 
       if (!card.isInfo && card.dateTime) {
         allCards.push({
@@ -60,6 +65,7 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
           fullDateTime: time,
           planName: activePlanName,
           destination: trip.to,
+          phase, // Store phase for navigation
         });
       }
     };
@@ -69,14 +75,14 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
     for (let day = 0; day < 2; day++) {
       if (!jetLagPlan.phases.prepare || !jetLagPlan.phases.prepare.cards) continue;
       for (const card of jetLagPlan.phases.prepare.cards) {
-        processCard(card, moment(card.dateTime));
+        processCard(card, moment(card.dateTime), 'prepare');
       }
     }
 
     // Travel phase cards
     if (jetLagPlan.phases.travel && jetLagPlan.phases.travel.cards) {
       for (const card of jetLagPlan.phases.travel.cards) {
-        processCard(card, moment(card.dateTime));
+        processCard(card, moment(card.dateTime), 'travel');
       }
     }
 
@@ -84,7 +90,7 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
     if (jetLagPlan.phases.adjust && jetLagPlan.phases.adjust.cards) {
       for (const card of jetLagPlan.phases.adjust.cards) {
         if (card.isDailyRoutine) continue;
-        processCard(card, moment(card.dateTime));
+        processCard(card, moment(card.dateTime), 'adjust');
       }
 
       // Daily Routine Logic
@@ -110,10 +116,26 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
             .hours(cardTime.hours())
             .minutes(cardTime.minutes());
 
+          // Handle overnight times (e.g. 1 AM bedtime belongs to the NEXT calendar day)
+          if (cardTime.hours() < 4) {
+            routineTime.add(1, 'day');
+          }
+
           // Only add if this specific routine time is actually in the future relative to arrival
           // e.g. If landed at 9 AM, and routine is 7 AM, skip today's 7 AM card.
           if (routineTime.isAfter(arriveDate)) {
-            processCard(card, routineTime);
+            // DUPLICATE CHECK: 
+            // If this is a Sleep/Bedtime card, check if we already scheduled a specific Arrival Sleep card for this time.
+            // This prevents the "Double Sleep Notification" on the first night.
+            if (card.title.includes('Sleep') || card.title.includes('Bedtime')) {
+              const hasConflict = allCards.some(existing =>
+                (existing.title.includes('Sleep') || existing.title.includes('Bedtime')) &&
+                Math.abs(moment(existing.fullDateTime).diff(routineTime, 'hours')) < 4
+              );
+              if (hasConflict) continue;
+            }
+
+            processCard(card, routineTime, 'adjust');
           }
         }
       }
@@ -121,18 +143,22 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
     // Inject "Welcome / Energy Check" Notification (At Arrival)
     // This is a synthetic card just for notifications—it triggers the app to open,
     // where TripDetails.tsx will automatically show the "Exhausted/Ok" modal.
-    const energyCheckTime = arriveDate.clone();
-    if (energyCheckTime.isValid()) {
-      allCards.push({
-        id: `energy-check-${tripIndex}`,
-        title: `Welcome to ${trip.to}!`,
-        time: 'Tell us how you feel post-flight so we can tailor the rest of your adjustment plan',
-        dateTime: energyCheckTime.toISOString(),
-        fullDateTime: energyCheckTime,
-        planName: activePlanName,
-        destination: trip.to,
-        isInfo: false, // Ensure it gets scheduled
-      });
+    // Suppress if this is a connection (adjust phase suppressed)
+    if (!jetLagPlan.suppressAdjustPhase) {
+      const energyCheckTime = arriveDate.clone().add(15, 'minutes'); // Delay by 15 mins to sync with popup
+      if (energyCheckTime.isValid()) {
+        allCards.push({
+          id: `energy-check-${tripIndex}`,
+          title: `Welcome to ${trip.to}!`,
+          time: 'Tell us how you feel post-flight so we can tailor the rest of your adjustment plan',
+          dateTime: energyCheckTime.toISOString(),
+          fullDateTime: energyCheckTime,
+          planName: activePlanName,
+          destination: trip.to,
+          phase: 'adjust', // Explicitly Adjust phase
+          isInfo: false, // Ensure it gets scheduled
+        });
+      }
     }
   });
 
@@ -172,30 +198,79 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
 // ----------------------------------------------------------------------
 // HELPER: Find the single Active Plan
 // ----------------------------------------------------------------------
+// ----------------------------------------------------------------------
+// HELPER: Find the single Active Plan (Matches TodayView Logic)
+// ----------------------------------------------------------------------
 function getActivePlan(plans: any[]) {
   if (!plans || plans.length === 0) return null;
   const now = moment();
 
-  return plans.find(plan => {
-    if (!plan.trips || plan.trips.length === 0) return false;
-    const firstTrip = plan.trips[0];
-    const lastTrip = plan.trips[plan.trips.length - 1];
+  let bestPlan: any = null;
+  let smallestTimeDiff = Infinity;
 
-    const departDate = moment(firstTrip.departDate);
-    // Expand window slightly to ensure we capture early prep cards
-    const prepareStart = departDate.clone().subtract(3, 'days');
+  plans.forEach(plan => {
+    // Only look at the primary/active trip context (usually the first one is fine for checking existence, 
+    // but TodayView iterates all trips. We should ideally stick to the specific trip that is active.)
+    // For simplicity and to match TodayView closely:
 
-    const lastSegment = lastTrip.segments && lastTrip.segments.length > 0
-      ? lastTrip.segments[lastTrip.segments.length - 1]
-      : lastTrip;
-    const arriveDate = moment(lastSegment.arriveDate);
+    plan.trips.forEach((trip: any, idx: number) => {
+      const departDate = moment(trip.departDate);
 
-    // Match the Adjust Phase duration (Arrival + 2 days limit)
-    const adjustEnd = arriveDate.clone().add(2, 'days');
+      const lastSegment = trip.segments && trip.segments.length > 0
+        ? trip.segments[trip.segments.length - 1]
+        : trip;
+      const arriveDate = moment(`${lastSegment.arriveDate} ${lastSegment.arriveTime}`, 'YYYY-MM-DD HH:mm');
 
-    return now.isBetween(prepareStart, adjustEnd, null, '[]');
+      // Expand window slightly to ensure we capture early prep cards matches TodayView logic (-2 days)
+      const prepareStart = departDate.clone().subtract(2, 'days');
+      const adjustEnd = arriveDate.clone().add(2, 'days').endOf('day');
+
+      if (now.isAfter(adjustEnd)) return;
+
+      const isWithinWindow = now.isBetween(prepareStart, adjustEnd, null, '[]');
+
+      if (isWithinWindow) {
+        // Active/In-Window
+        let diff = 0;
+        if (departDate.isSameOrBefore(now)) {
+          // Departed already taking diff from departure
+          diff = now.diff(departDate, 'hours');
+        } else {
+          // Not departed yet
+          diff = departDate.diff(now, 'hours') + 1000; // Penalty to prioritize active travel over prep? 
+          // actually TodayView uses days, let's stick to TodayView's weight
+          // TodayView:
+          // if departed: diff in days
+          // if not departed: diff + 1000
+        }
+
+        // Re-implementing TodayView's exact scoring:
+        let score = 0;
+        if (departDate.isSameOrBefore(now)) {
+          score = now.diff(departDate, 'minutes'); // Use minutes for finer grain
+        } else {
+          score = departDate.diff(now, 'minutes') + (1000 * 60); // +1000 arbitrary penalty
+        }
+
+        if (score < smallestTimeDiff) {
+          smallestTimeDiff = score;
+          bestPlan = plan;
+        }
+
+      } else if (departDate.isAfter(now)) {
+        // Future Plan
+        const score = departDate.diff(now, 'minutes') + (10000 * 60); // Higher penalty
+        if (score < smallestTimeDiff) {
+          smallestTimeDiff = score;
+          bestPlan = plan;
+        }
+      }
+    });
   });
+
+  return bestPlan;
 }
+
 
 // ----------------------------------------------------------------------
 // ANDROID STRATEGY: Periodic Polling (Persistent Banner)
@@ -278,7 +353,7 @@ async function scheduleIOSNotifications(plans: any[], cardStatuses: Record<strin
 
   // Always clear old pending notifications to prevent duplicates or stale plans
   await notifee.cancelAllNotifications();
-  console.log('[iOS] Old notifications cancelled');
+  console.log('[iOS] Cancelled all pending notifications. Re-scheduling fresh batch...');
 
   if (!settings.enabled) {
     console.log('[iOS] Notifications disabled in settings');
@@ -307,11 +382,18 @@ async function scheduleIOSNotifications(plans: any[], cardStatuses: Record<strin
     // Skip if somehow in past
     if (triggerTimestamp <= Date.now()) continue;
 
-    console.log(`  -> Scheduling: "${card.title}" at ${card.fullDateTime.format()}`);
+    let finalTriggerTimestamp = triggerTimestamp;
+    let timingMsg = `at ${card.fullDateTime.format()}`;
 
-    // Create a deterministic ID based on title and time to allow overwriting
-    // This strictly prevents duplicates even if the scheduler runs multiple times
-    const deterministicId = `${card.title}-${triggerTimestamp}`.replace(/[^a-zA-Z0-9]/g, '-');
+    // Note: The "Welcome to [City]" (energy-check) notification is already delayed by 15 mins during creation.
+    // We do NOT delay the "You've Arrived" card notification itself, as per user request.
+
+    console.log(`  -> Scheduling: "${card.title}" ${timingMsg}`);
+
+    // Use strict ID based on Plan + Card ID.
+    // This ensures that if we re-run the scheduler, we are talking about the EXACT same notification slot.
+    // If we cancel all, this ID is cleared. If we re-schedule, it uses this ID.
+    const deterministicId = `${activePlan.id}-${card.id}`.replace(/[^a-zA-Z0-9]/g, '-');
 
     try {
       await notifee.createTriggerNotification(
@@ -323,11 +405,11 @@ async function scheduleIOSNotifications(plans: any[], cardStatuses: Record<strin
             sound: 'default',
             interruptionLevel: 'active', // 'active' lights up screen
           },
-          data: { planName: activePlan.name, cardId: card.id },
+          data: { planName: activePlan.name, cardId: card.id, phase: card.phase },
         },
         {
           type: TriggerType.TIMESTAMP,
-          timestamp: triggerTimestamp,
+          timestamp: finalTriggerTimestamp,
         }
       );
     } catch (err) {

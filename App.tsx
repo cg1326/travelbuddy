@@ -17,6 +17,7 @@ import moment from 'moment';
 import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
 import Icon from 'react-native-vector-icons/Feather';
 import { startPersistentNotificationUpdater } from './utils/notificationScheduler';
+import { Analytics } from './utils/Analytics';
 
 
 const Tab = createBottomTabNavigator();
@@ -39,8 +40,8 @@ function PlansScreen({ navigation }: any) {
     const upcoming = plans.filter(plan => {
       if (!plan.trips || plan.trips.length === 0) return false;
       const lastTrip = plan.trips[plan.trips.length - 1];
-      // Keep plan active until 1 day after arrival to include the shortened adjustment phase
-      const planEndDate = moment(lastTrip.arriveDate).add(1, 'days');
+      // Keep plan active until 2 days after arrival to include the shortened adjustment phase
+      const planEndDate = moment(lastTrip.arriveDate).add(2, 'days');
       return planEndDate.isSameOrAfter(today, 'day');
     }).sort((a, b) => {
       // Sort active plan to top
@@ -54,8 +55,8 @@ function PlansScreen({ navigation }: any) {
     const past = plans.filter(plan => {
       if (!plan.trips || plan.trips.length === 0) return false;
       const lastTrip = plan.trips[plan.trips.length - 1];
-      // Move to past only after adjustment phase (arrival + 1 day) is complete
-      const planEndDate = moment(lastTrip.arriveDate).add(1, 'days');
+      // Move to past only after adjustment phase (arrival + 2 days) is complete
+      const planEndDate = moment(lastTrip.arriveDate).add(2, 'days');
       return planEndDate.isBefore(today, 'day');
     });
 
@@ -329,9 +330,12 @@ function SplashScreen() {
 
 function MainApp() {
   const { isLoading, plans } = usePlans();
+  const plansRef = useRef(plans);
+  plansRef.current = plans; // Keep ref updated
+
   const [isSplashMinTimeElapsed, setSplashMinTimeElapsed] = React.useState(false);
   const [isSplashMaxTimeElapsed, setSplashMaxTimeElapsed] = React.useState(false);
-  const [hasSeenIntro, setHasSeenIntro] = React.useState<boolean | null>(null); // <--- NEW STATE
+  const [hasSeenIntro, setHasSeenIntro] = React.useState<boolean | null>(null);
   const navigationRef = useRef<any>(null);
 
   // <--- NEW: CHECK INTRO STATUS
@@ -353,6 +357,8 @@ function MainApp() {
     try {
       await AsyncStorage.setItem('@travelbuddy_has_seen_intro', 'true');
       setHasSeenIntro(true);
+      // Log Onboarding Complete
+      Analytics.logOnboardingComplete(0);
     } catch (e) {
       console.error('Error saving intro status', e);
     }
@@ -374,34 +380,30 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
-    // Handle notification taps
+    // Handle notification taps (Foreground)
     const unsubscribe = notifee.onForegroundEvent(({ type, detail }) => {
       if (type === EventType.PRESS && detail.notification?.data) {
-        const { planName } = detail.notification.data;
-
-        if (navigationRef.current) {
-          if (planName) {
-            // Find the plan to navigate to
-            const targetPlan = plans.find(p => p.name === planName);
-            if (targetPlan) {
-              navigationRef.current.navigate('TripDetail', {
-                plan: targetPlan,
-                initialPhase: 'adjust' // Open to Adjust phase for Welcome notification
-              });
-              return;
-            }
-          }
-          // Default fallback
-          navigationRef.current.navigate('MainTabs', { screen: 'Today' });
-        }
+        handleNotificationNavigation(detail.notification);
       }
     });
 
-    // Handle background notification taps (when app is in background)
+    // Handle background notification taps (Cold Start or Background)
+    notifee.getInitialNotification().then(initialNotification => {
+      if (initialNotification?.notification?.data) {
+        console.log('🚀 App opened via Notification:', initialNotification.notification.data);
+        // We need to wait for plans to load before navigating.
+        // We can store the pending notification in a ref/state and handle it once isLoading is false.
+        setPendingNotification(initialNotification.notification);
+      }
+    });
+
+    // Handle background event (e.g. user taps notification while app is in background but suspended)
     notifee.onBackgroundEvent(async ({ type, detail }) => {
-      if (type === EventType.PRESS) {
-        // Background notification tap will open app to Today tab
-        // This is handled by the initial route when app opens
+      if (type === EventType.PRESS && detail.notification) {
+        // This usually just brings app to foreground, and getInitialNotification or onForeground might pick it up?
+        // Actually, onBackgroundEvent is for headless tasks.
+        // For UI interaction, getInitialNotification covers the "tap to open" case.
+        // However, listener setup is required.
       }
     });
 
@@ -409,6 +411,43 @@ function MainApp() {
       unsubscribe();
     };
   }, []);
+
+  // Effect to process pending notification once plans are loaded
+  const [pendingNotification, setPendingNotification] = React.useState<any>(null);
+  useEffect(() => {
+    if (!isLoading && plans.length > 0 && pendingNotification && navigationRef.current) {
+      handleNotificationNavigation(pendingNotification);
+      setPendingNotification(null); // Clear after handling
+    }
+  }, [isLoading, plans, pendingNotification]);
+
+  const handleNotificationNavigation = (notification: any) => {
+    if (!navigationRef.current) {
+      console.warn('Navigation ref not ready, skipping notification navigation');
+      return;
+    }
+
+    const { planName, phase } = notification.data || {};
+    console.log('[App] Notification Tapped. Data:', notification.data);
+
+    if (planName) {
+      // Use ref to avoid stale closure in listener
+      const currentPlans = plansRef.current;
+      const targetPlan = currentPlans.find(p => p.name === planName);
+      console.log('[App] Target Plan Found?', targetPlan ? 'YES' : 'NO');
+
+      if (targetPlan) {
+        navigationRef.current.navigate('TripDetail', {
+          plan: targetPlan,
+          initialPhase: phase || 'today' // Use specific phase if provided, else default
+        });
+      } else {
+        navigationRef.current.navigate('MainTabs', { screen: 'Today' });
+      }
+    } else {
+      navigationRef.current.navigate('MainTabs', { screen: 'Today' });
+    }
+  };
 
   // Show splash if:
   // 1. Min time (2s) hasn't passed yet
@@ -425,8 +464,17 @@ function MainApp() {
   return (
     <>
       <NotificationUpdater />
-      <NavigationContainer ref={navigationRef}>
+      <NavigationContainer
+        ref={navigationRef}
+        onStateChange={(state) => {
+          const currentRouteName = state?.routes[state.index].name;
+          if (currentRouteName) {
+            Analytics.logScreenView(currentRouteName);
+          }
+        }}
+      >
         <Stack.Navigator initialRouteName={!hasSeenIntro ? "IntroCards" : "MainTabs"}>
+          {/* ... */}
           <Stack.Screen
             name="IntroCards"
             options={{ headerShown: false }}
@@ -441,50 +489,17 @@ function MainApp() {
           <Stack.Screen
             name="AddPlanName"
             component={AddPlanName}
-            options={{
-              title: 'Create New Plan',
-              headerBackTitle: 'Back',
-              headerBackVisible: true,
-              headerTitleStyle: {
-                fontFamily: 'Jua',
-                fontSize: 18,
-              },
-              headerBackTitleStyle: {
-                fontFamily: 'Jua',
-              },
-            }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="AddTrips"
             component={AddTrips}
-            options={{
-              title: 'Add Trips',
-              headerBackTitle: 'Back',
-              headerBackVisible: true,
-              headerTitleStyle: {
-                fontFamily: 'Jua',
-                fontSize: 18,
-              },
-              headerBackTitleStyle: {
-                fontFamily: 'Jua',
-              },
-            }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="ReviewPlan"
             component={ReviewPlan}
-            options={{
-              title: 'Review Plan',
-              headerBackTitle: 'Back',
-              headerBackVisible: true,
-              headerTitleStyle: {
-                fontFamily: 'Jua',
-                fontSize: 18,
-              },
-              headerBackTitleStyle: {
-                fontFamily: 'Jua',
-              },
-            }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="TripDetail"

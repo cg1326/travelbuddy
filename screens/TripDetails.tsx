@@ -20,7 +20,8 @@ import QuickDelayModal from '../components/QuickDelayModal';
 import ConflictModal from '../components/ConflictModal';
 import { getCityTimezone } from '../utils/jetLagAlgorithm';
 import moment from 'moment-timezone';
-import { FeedbackModal } from '../components/FeedbackModal';
+import * as StoreReview from 'react-native-store-review';
+import { Analytics } from '../utils/Analytics'; // Import Analytics
 
 // ───────────────────────────────────────────────
 // Interfaces
@@ -42,6 +43,8 @@ interface Card {
 interface Phase {
   name: string;
   dateRange: string;
+  startDate?: string;
+  endDate?: string;
   cards: Card[];
 }
 
@@ -64,6 +67,8 @@ interface Trip {
   id: string;
   from: string;
   to: string;
+  fromTz?: string;
+  toTz?: string;
   departDate: string;
   departTime: string;
   arriveDate: string;
@@ -77,25 +82,62 @@ interface Trip {
 // Helper to determine if we should prompt for exhaustion
 const isWithinArrivalWindow = (trip: Trip): boolean => {
   if (!trip) return false;
+  // Use destination timezone for accurate "Now/Landed" comparison
+  const destTz = trip.toTz || getCityTimezone(trip.to);
   // Valid if within 18 hours after landing, starting 15 minutes after arrival
-  const landingTime = moment(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm');
-  const now = moment();
-  const diffHours = now.diff(landingTime, 'hours', true); // Use float for precision
+  // Compare "Now" in destination vs "Arrival Time" in destination
+  const landingTime = moment.tz(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm', destTz);
+  const nowInDestination = moment.tz(destTz);
+
+  const diffHours = nowInDestination.diff(landingTime, 'hours', true); // Use float for precision
   return diffHours >= 0.25 && diffHours < 18; // 0.25 hours = 15 minutes
 };
 
 // ───────────────────────────────────────────────
 // Component
 // ───────────────────────────────────────────────
+// HELPER: Get "Logical Date" for a card
+// If card is between 12 AM and 5 AM, assign it to the PREVIOUS date string
+// This ensures 12:00 AM sleep cards appear at the end of "Today" rather than start of "Tomorrow"
+const getCardLogicalDate = (card: Card, tz: string) => {
+  if (!card.dateTime) return '';
+  const mom = moment.tz(card.dateTime, tz);
+
+  // EXCEPTION: "You've Arrived" card should always appear on the actual arrival date,
+  // even if it's 4 AM (which normally shifts to previous day).
+  if (card.id === 'adjust-arrival') {
+    return mom.format('YYYY-MM-DD');
+  }
+
+  if (mom.hour() < 5) {
+    return mom.clone().subtract(1, 'day').format('YYYY-MM-DD');
+  }
+  return mom.format('YYYY-MM-DD');
+};
+
 export default function TripDetail({ route, navigation }: any) {
   const { plan: initialPlan, initialTripIndex, initialPhase } = route.params;
   const { plans, updatePlan, cardStatuses, updateCardStatus, batchUpdateCardStatuses } = usePlans(); // Use global state
+
+  // DEBUG LOG
+  console.log('[TripDetail] Params:', { initialTripIndex, initialPhase });
 
   // Get live plan from context to ensure updates (like exhaustion status) reflect immediately
   const plan = plans.find(p => p.id === initialPlan.id) || initialPlan;
 
   const [currentTripIndex, setCurrentTripIndex] = useState(initialTripIndex || 0);
   const [activePhase, setActivePhase] = useState<'prepare' | 'travel' | 'adjust'>(initialPhase || 'travel');
+
+  // React to param changes (e.g. Navigation from Notification while screen is already mounted)
+  React.useEffect(() => {
+    if (initialPhase) {
+      setActivePhase(initialPhase);
+    }
+    if (initialTripIndex !== undefined) {
+      setCurrentTripIndex(initialTripIndex);
+    }
+  }, [initialPhase, initialTripIndex]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [showExhaustionModal, setShowExhaustionModal] = useState(false);
   const [showEditTooltip, setShowEditTooltip] = useState(false);
@@ -104,8 +146,6 @@ export default function TripDetail({ route, navigation }: any) {
   const [showDelayModal, setShowDelayModal] = useState(false);
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [pendingUpdateTrips, setPendingUpdateTrips] = useState<any[] | null>(null);
-  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
-  const [hasGivenFeedback, setHasGivenFeedback] = useState(false);
 
   const handleApplyDelay = (minutes: number) => {
     const updatedTrips = [...plan.trips];
@@ -176,8 +216,10 @@ export default function TripDetail({ route, navigation }: any) {
     updatePlan(plan.id, plan.name, updatedTrips);
   };
 
-  // Track view count and check tooltip conditions
+  // Check conditions for edit tooltip
   React.useEffect(() => {
+    let timeoutId: any;
+
     const checkTooltipConditions = async () => {
       try {
         const tooltipShownKey = `@travelbuddy_edit_tooltip_shown_global`; // Global key for user
@@ -197,13 +239,14 @@ export default function TripDetail({ route, navigation }: any) {
 
         // Check conditions: within 72 hours OR 3+ views
         const trip = plan.trips[currentTripIndex];
-        const hoursUntilDeparture = moment(trip.departDate).diff(moment(), 'hours');
+        const depTz = trip.fromTz || getCityTimezone(trip.from);
+        const hoursUntilDeparture = moment.tz(`${trip.departDate} ${trip.departTime}`, 'YYYY-MM-DD HH:mm', depTz).diff(moment.tz(depTz), 'hours');
         const within72Hours = hoursUntilDeparture <= 72 && hoursUntilDeparture >= 0;
         const hasEnoughViews = newViewCount >= 3;
 
         if (within72Hours || hasEnoughViews) {
           // Show tooltip after a brief delay to let the screen settle
-          setTimeout(() => setShowEditTooltip(true), 500);
+          timeoutId = setTimeout(() => setShowEditTooltip(true), 500);
         }
       } catch (error) {
         console.error('Error checking tooltip conditions:', error);
@@ -211,6 +254,10 @@ export default function TripDetail({ route, navigation }: any) {
     };
 
     checkTooltipConditions();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [plan.id, currentTripIndex]);
 
   const handleDismissTooltip = async () => {
@@ -235,6 +282,8 @@ export default function TripDetail({ route, navigation }: any) {
 
   // Check for Delay Tooltip (Priority: Secondary)
   React.useEffect(() => {
+    let timeoutId: any;
+
     const checkDelayTooltip = async () => {
       // 1. Priority Check: Don't show if Edit Tooltip is visible
       if (showEditTooltip) return;
@@ -242,7 +291,8 @@ export default function TripDetail({ route, navigation }: any) {
       // 2. Phase Check: Only show in 'travel' phase or close to departure
       // Use logic similar to 'within 24h' or matches 'travel'
       const trip = plan.trips[currentTripIndex];
-      const hoursUntilDeparture = moment(trip.departDate).diff(moment(), 'hours');
+      const depTz = trip.fromTz || getCityTimezone(trip.from);
+      const hoursUntilDeparture = moment.tz(`${trip.departDate} ${trip.departTime}`, 'YYYY-MM-DD HH:mm', depTz).diff(moment.tz(depTz), 'hours');
 
       // Show if we are in travel phase active tab OR within 24 hours of flight
       const isRelevantTime = activePhase === 'travel' || (hoursUntilDeparture <= 24 && hoursUntilDeparture >= -24);
@@ -255,7 +305,7 @@ export default function TripDetail({ route, navigation }: any) {
 
         if (tooltipShown !== 'true') {
           // Show it
-          setTimeout(() => setShowDelayTooltip(true), 1000); // 1s delay to stagger execution
+          timeoutId = setTimeout(() => setShowDelayTooltip(true), 1000); // 1s delay to stagger execution
         }
       } catch (error) {
         console.error('Error checking delay tooltip:', error);
@@ -263,6 +313,10 @@ export default function TripDetail({ route, navigation }: any) {
     };
 
     checkDelayTooltip();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [showEditTooltip, activePhase, plan.id, currentTripIndex]);
 
 
@@ -271,12 +325,84 @@ export default function TripDetail({ route, navigation }: any) {
   React.useEffect(() => {
     if (activePhase === 'adjust') {
       const currentTrip = plan.trips[currentTripIndex];
+      const inWindow = isWithinArrivalWindow(currentTrip);
+
+      console.log('[TripDetail] Popup Check:', {
+        inWindow,
+        status: currentTrip?.arrivalRestStatus,
+        landingTime: currentTrip?.arriveTime,
+        now: moment().format(),
+        tz: currentTrip?.toTz || getCityTimezone(currentTrip?.to)
+      });
+
       // Only prompt if status is not set AND we are within the valid window
-      if (currentTrip && currentTrip.arrivalRestStatus === undefined && isWithinArrivalWindow(currentTrip)) {
+      if (currentTrip && currentTrip.arrivalRestStatus === undefined && inWindow) {
         setShowExhaustionModal(true);
       }
     }
   }, [activePhase, currentTripIndex, plan]);
+
+  // Helper to determine the relevant phase timezone
+  const getPhaseTimezone = (phaseKey: string) => {
+    const trip = plan.trips[currentTripIndex];
+    if (phaseKey === 'adjust') {
+      return trip.toTz || getCityTimezone(trip.to);
+    }
+    // Prepare and Travel phases use origin timezone
+    return trip.fromTz || getCityTimezone(trip.from);
+  };
+
+  // Helper to get all dates in a phase
+  const getDatesForPhase = (phaseKey: string) => {
+    const tripPlan = plan.jetLagPlans[currentTripIndex];
+    if (!tripPlan) return [];
+
+    const phase = tripPlan.phases[phaseKey as keyof typeof tripPlan.phases];
+    if (!phase.startDate || !phase.endDate) {
+      // Fallback - Extract dates from cards
+      const datesSet = new Set<string>();
+      const tz = getPhaseTimezone(phaseKey);
+      phase.cards.forEach((card: Card) => {
+        if (card.dateTime) {
+          datesSet.add(moment.tz(card.dateTime, tz).format('YYYY-MM-DD'));
+        }
+      });
+      return Array.from(datesSet).sort();
+    }
+
+    // Generate dates between startDate and endDate inclusive
+    const start = moment(phase.startDate, 'YYYY-MM-DD');
+    const end = moment(phase.endDate, 'YYYY-MM-DD');
+    const dates = [];
+
+    let curr = start.clone();
+    while (curr.isSameOrBefore(end, 'day')) {
+      dates.push(curr.format('YYYY-MM-DD'));
+      curr.add(1, 'day');
+    }
+
+    return dates;
+  };
+
+
+
+  // Reset selectedDate when phase or trip changes
+  React.useEffect(() => {
+    const dates = getDatesForPhase(activePhase);
+    if (dates.length > 0) {
+      // For Prepare AND Adjust phases, always default to the first date if not set or invalid
+      // This prevents "Show All" (null) which would be overwhelming with unrolled daily cards
+      if (activePhase === 'prepare' || activePhase === 'adjust') {
+        if (!selectedDate || !dates.includes(selectedDate)) {
+          setSelectedDate(dates[0]);
+        }
+      } else {
+        setSelectedDate(null);
+      }
+    } else {
+      setSelectedDate(null);
+    }
+  }, [activePhase, currentTripIndex]);
 
   const handleUpdateRestStatus = (status: 'exhausted' | 'ok') => {
     const updatedTrips = [...plan.trips];
@@ -293,16 +419,80 @@ export default function TripDetail({ route, navigation }: any) {
 
   // OLD: Local state removed
 
+  const checkAndPromptReview = async (updatedStatuses?: any) => {
+    try {
+      if (!plan || !plan.jetLagPlans || !plan.jetLagPlans[currentTripIndex]) return;
+
+      const tripPlan = plan.jetLagPlans[currentTripIndex];
+      const allCards = [
+        ...tripPlan.phases.prepare.cards,
+        ...tripPlan.phases.travel.cards,
+        ...tripPlan.phases.adjust.cards
+      ].filter(c => !c.isInfo);
+
+      if (allCards.length === 0) return;
+
+      const statusesToUse = updatedStatuses || cardStatuses;
+      const completedCount = allCards.filter(c => {
+        const status = statusesToUse[`${plan.id}_${c.id}`];
+        return status === 'done' || status === 'skipped';
+      }).length;
+
+      const progressRatio = completedCount / allCards.length;
+
+      if (progressRatio >= 0.5) {
+        const storageKey = `review_prompt_shown_${plan.id}_trip_${currentTripIndex}`;
+        const hasPrompted = await AsyncStorage.getItem(storageKey);
+
+        if (!hasPrompted) {
+          try {
+            StoreReview.requestReview();
+            await AsyncStorage.setItem(storageKey, 'true');
+          } catch (e) {
+            console.error('StoreReview error:', e);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking review prompt:', error);
+    }
+  };
+
   const handleSkip = (cardId: string) => {
     updateCardStatus(plan.id, cardId, 'skipped');
+    // Check for 50% progress after skip
+    const updated = { ...cardStatuses, [`${plan.id}_${cardId}`]: 'skipped' };
+    checkAndPromptReview(updated);
   };
 
   const handleDone = (cardId: string) => {
     updateCardStatus(plan.id, cardId, 'done');
-    // Trigger Feedback Modal if "Arrived" card is done
-    if (cardId === 'adjust-arrival' && !hasGivenFeedback) {
-      setTimeout(() => setShowFeedbackModal(true), 800);
+
+    // ANALYTICS
+    try {
+      const tripPlan = plan.jetLagPlans[currentTripIndex];
+      if (tripPlan) {
+        const phases = [tripPlan.phases.prepare, tripPlan.phases.travel, tripPlan.phases.adjust];
+        let foundCard = null;
+        for (const phase of phases) {
+          foundCard = phase.cards.find((c: any) => c.id === cardId);
+          if (foundCard) break;
+        }
+
+        if (foundCard && foundCard.dateTime) {
+          const tripStart = moment(plan.trips[currentTripIndex].departDate);
+          const cardDate = moment(foundCard.dateTime);
+          const day = cardDate.diff(tripStart, 'days') + 1;
+          Analytics.logTaskCompleted(foundCard.title, day);
+        }
+      }
+    } catch (e) {
+      console.warn('Analytics log failed', e);
     }
+
+    // Check for 50% progress after done
+    const updated = { ...cardStatuses, [`${plan.id}_${cardId}`]: 'done' };
+    checkAndPromptReview(updated);
   };
 
   const handleUndo = (cardId: string) => {
@@ -328,8 +518,12 @@ export default function TripDetail({ route, navigation }: any) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Icon name="arrow-left" size={28} color="#1E293B" />
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+          >
+            <Icon name="chevron-left" size={28} color="#1E293B" />
           </TouchableOpacity>
           <Text style={styles.planName}>Error loading plan</Text>
         </View>
@@ -415,6 +609,18 @@ export default function TripDetail({ route, navigation }: any) {
       skipBg: "#FEFCE8",            // Off-white skip button
       skipText: "#000000",
       doneBg: "#F6CB60",            // Pastel yellow done button
+      doneText: "#FFFFFF",
+    },
+
+    "LockedIn": {
+      background: "#FDE68A",        // Slightly darker yellow (Yellow 300)
+      titleColor: "#000000",        // Dark navy-gray text
+      timeColor: "#000000",
+      textColor: "#000000",
+      labelColor: "#854d0eff",        // Deep amber/brown label
+      skipBg: "#FEFCE8",            // Off-white skip button
+      skipText: "#000000",
+      doneBg: "#b45309ff",            // Deep amber done button
       doneText: "#FFFFFF",
     },
 
@@ -549,6 +755,10 @@ export default function TripDetail({ route, navigation }: any) {
       !t.includes("avoid"))
       return CARD_THEMES.Sunlight;
 
+    // Lock In Rhythm - darker yellow
+    if (t.includes("lock in your rhythm") || t.includes("lock in rhythm"))
+      return CARD_THEMES.LockedIn;
+
     // Stay Awake
     if (t.includes("stay awake") || t.includes("awake") || t.includes("start your day"))
       return CARD_THEMES.StayAwake;
@@ -588,7 +798,7 @@ export default function TripDetail({ route, navigation }: any) {
     }
 
     // Sunlight / Light (but check after flight cards)
-    if (t.includes('sunlight') || (t.includes('light') && !t.includes('avoid'))) {
+    if (t.includes('sunlight') || (t.includes('light') && !t.includes('avoid')) || t.includes('lock in')) {
       return 'sun';
     }
 
@@ -663,29 +873,23 @@ export default function TripDetail({ route, navigation }: any) {
     let cards = [];
 
     if (activePhase !== 'adjust') {
-      cards = currentPhase.cards;
+      cards = [...currentPhase.cards];
 
       // MERGE LOGIC: If strategy is 'stay_home' AND NOT suppressed, and we are looking at 'travel' phase,
       // append the 'adjust' phase cards to the end of the list.
       if (tripPlan.strategy === 'stay_home' && !tripPlan.suppressAdjustPhase && activePhase === 'travel') {
-        // Sort travel cards first
-        const travelCards = [...cards].sort((a, b) => {
-          if (!a.dateTime || !b.dateTime) return 0;
-          return moment(a.dateTime).diff(moment(b.dateTime));
-        });
-
-        // Get adjust cards (using the same logic as the else block below ideally, but simplified)
-        // We can just grab raw cards, but we might want to filter headers?
-        // Let's grab raw for now, assuming generateAdjustCards does good work.
-        // Actually, let's filter out the "Arrival Day" header if it's redundant with "Travel Day".
         const adjustCards = tripPlan.phases.adjust.cards.filter(c =>
-          !c.title.includes('Arrival Day') // Avoid double headers if possible
-        ).sort((a, b) => {
-          if (!a.dateTime || !b.dateTime) return 0;
-          return moment(a.dateTime).diff(moment(b.dateTime));
-        });
+          !c.title.includes('Arrival Day')
+        );
+        cards = [...cards, ...adjustCards];
+      }
 
-        return [...travelCards, ...adjustCards];
+      // Filter by selectedDate (Only for Prepare phase as per user request)
+      if (activePhase === 'prepare' && selectedDate) {
+        const tz = getPhaseTimezone(activePhase);
+        cards = cards.filter(c =>
+          getCardLogicalDate(c, tz) === selectedDate
+        );
       }
 
       return cards.sort((a, b) => {
@@ -693,87 +897,29 @@ export default function TripDetail({ route, navigation }: any) {
         return moment(a.dateTime).diff(moment(b.dateTime));
       });
     } else {
-      const arrivalDate = moment(trip.arriveDate);
-      const adjustCards = currentPhase.cards;
+      // FIX: Unified filtering for Adjust Phase (same as Prepare)
+      // Since we now have unrolled daily cards with specific dates in the Adjust phase,
+      // we can simply filter by the selectedDate using getCardLogicalDate.
 
-      // 1. You've Arrived Card
-      const arrivalCard = adjustCards.find(c =>
-        (c.title.toLowerCase().includes("you've arrived") || c.title.toLowerCase().includes("arrived")) &&
-        !c.title.includes('Arrival Day') // Exclude header if it matches "arrived"
-      );
+      const tz = getPhaseTimezone('adjust');
+      let adjustCards = [...currentPhase.cards];
 
-      const arrivalTime = arrivalCard && arrivalCard.dateTime ? moment(arrivalCard.dateTime) : null;
+      if (selectedDate) {
+        adjustCards = adjustCards.filter(c =>
+          getCardLogicalDate(c, tz) === selectedDate
+        );
+      }
 
-      // 2. Arrival Day Cards (excluding the arrival card found above)
-      const arrivalDayCards = adjustCards.filter(c => {
-        if (arrivalCard && c.id === arrivalCard.id) return false;
+      // Hide headers (Departure/Arrival/In Flight) as they are usually for Travel phase
+      // unless they are specific informational headers we want to keep?
+      // For now, keep them if they fall on the date, but usually Adjust phase doesn't have them.
+      // But we should filter out the "Daily Routine" separator if it exists and looks cluttery
+      adjustCards = adjustCards.filter(c => !c.id.includes('adjust-separator'));
 
-        // Exclude headers
-        if (c.title.includes('Departure Day') ||
-          c.title.includes('Arrival Day') ||
-          c.title.includes('In Flight')) {
-          return false;
-        }
-
-        // Exclude daily routine related cards
-        if (c.isDailyRoutine) return false;
-        if (c.title.includes('Daily Routine') && c.isInfo) return false;
-
-        // Check date - must be on arrival day
-        if (c.dateTime) {
-          const cardTime = moment(c.dateTime);
-
-          // REMOVED: Strict date check preventing cards from showing if they spill into next day in local time
-          // if (!cardTime.isSame(arrivalDate, 'day')) return false;
-
-          // NEW: Filter out cards strictly before arrival time
-          // (e.g. don't show "No Caffeine after 2 PM" if we arrived at 3 PM)
-          if (arrivalTime && cardTime.isBefore(arrivalTime)) {
-            return false;
-          }
-
-          return true;
-        }
-        return false;
-      }).sort((a, b) => {
-        // SORTING: Chronological only
-        // Removed Priority hoisting to allow natural timeline flow (e.g. Meal at 9 PM before Sleep at 10:30 PM)
+      return adjustCards.sort((a, b) => {
         if (!a.dateTime || !b.dateTime) return 0;
         return moment(a.dateTime).diff(moment(b.dateTime));
       });
-
-      // 3. Daily Routine Separator
-      const separatorCard = adjustCards.find(c => c.title.includes('Daily Routine') && c.isInfo);
-
-      // 4. Daily Routine Cards (The adjust cards from wake time to bedtime)
-      const routineCards = adjustCards.filter(c => {
-        if (separatorCard && c.id === separatorCard.id) return false;
-
-        // Exclude headers
-        if (c.title.includes('Departure Day') ||
-          c.title.includes('Arrival Day') ||
-          c.title.includes('In Flight')) {
-          return false;
-        }
-
-        // Include isDailyRoutine cards
-        if (c.isDailyRoutine) return true;
-
-        return false;
-      }).sort((a, b) => {
-        // Sort by time/dateTime
-        if (!a.dateTime || !b.dateTime) return 0;
-        return moment(a.dateTime).diff(moment(b.dateTime));
-      });
-
-      // Assemble final list
-      const result = [];
-      if (arrivalCard) result.push(arrivalCard);
-      result.push(...arrivalDayCards);
-      if (separatorCard) result.push(separatorCard);
-      result.push(...routineCards);
-
-      return result;
     }
   };
 
@@ -836,8 +982,12 @@ export default function TripDetail({ route, navigation }: any) {
     <View style={styles.container}>
       {/* ────── Header bar ────── */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Icon name="arrow-left" size={28} color="#1E293B" />
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+        >
+          <Icon name="chevron-left" size={28} color="#1E293B" />
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.planName}>{plan.name}</Text>
@@ -859,7 +1009,7 @@ export default function TripDetail({ route, navigation }: any) {
             style={styles.editButton}
             onPress={() => {
               // Navigate to AddTrips with minimal params to avoid serialization issues
-              navigation.navigate('AddTrips', {
+              navigation.push('AddTrips', {
                 mode: 'edit',
                 planName: plan.name,
                 existingPlanId: plan.id
@@ -1000,7 +1150,31 @@ export default function TripDetail({ route, navigation }: any) {
       {/* ────── Sticky Section Header (navy bar) ────── */}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionHeaderText}>{getPhaseHeaderText()}</Text>
+
       </View>
+
+      {/* ────── Prepare/Adjust Phase Sub-Tabs ────── */}
+      {(activePhase === 'prepare' || activePhase === 'adjust') && getDatesForPhase(activePhase).length > 1 && (
+        <View style={styles.prepareDateTabsContainer}>
+          <View style={styles.prepareDateTabsScroll}>
+            {getDatesForPhase(activePhase).map((dateStr) => {
+              const mom = moment(dateStr);
+              const isActive = selectedDate === dateStr;
+              return (
+                <TouchableOpacity
+                  key={dateStr}
+                  style={[styles.prepareDateTab, isActive && styles.prepareDateTabActive]}
+                  onPress={() => setSelectedDate(dateStr)}
+                >
+                  <Text style={[styles.prepareDateTabText, isActive && styles.prepareDateTabTextActive]}>
+                    {mom.format('MMM D')}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      )}
 
       {/* ────── Cards Section ────── */}
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -1042,10 +1216,11 @@ export default function TripDetail({ route, navigation }: any) {
                 onPress={() => {
                   if (card.id === 'conflict-warning') {
                     // Navigate to Edit Trip screen
-                    navigation.navigate('AddTrips', {
-                      mode: 'edit',
+                    navigation.push('AddTrips', {
+                      planName: plan.name,
+                      mode: 'create',
                       existingPlanId: plan.id,
-                      planName: plan.name
+                      insertMode: true
                     });
                     return;
                   }
@@ -1119,7 +1294,7 @@ export default function TripDetail({ route, navigation }: any) {
                         adjustsFontSizeToFit={card.title.includes('→')}
                         minimumFontScale={0.95}
                       >
-                        {card.title}
+                        {activePhase === 'prepare' ? card.title.split(' - ')[0] : card.title}
                       </Text>
                       {card.time && (
                         <Text style={[styles.cardTime, { color: theme.timeColor } as TextStyle]}>
@@ -1251,16 +1426,7 @@ export default function TripDetail({ route, navigation }: any) {
         </View>
       </Modal>
 
-      <FeedbackModal
-        visible={showFeedbackModal}
-        onClose={() => setShowFeedbackModal(false)}
-        onSubmit={(rating, comment) => {
-          console.log('Feedback:', rating, comment);
-          setHasGivenFeedback(true);
-          setShowFeedbackModal(false);
-          Alert.alert('Thank You!', 'Your feedback helps us improve.');
-        }}
-      />
+
 
       {/* Quick Delay Modal */}
       <QuickDelayModal
@@ -1536,6 +1702,40 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     color: '#FFFFFF',
   },
 
+  // Prepare Phase Date Sub-Tabs (New Refined Design)
+  prepareDateTabsContainer: {
+    marginTop: 0,
+    backgroundColor: '#FFFFFF', // Add white background strip? Or keeps transparent? transparent is better for "not in header" feel but maybe better contrast if it has its own strip.
+    // User said "not with the navy background".
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  prepareDateTabsScroll: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  prepareDateTab: {
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: '#F1F5F9', // Light gray for inactive
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  prepareDateTabActive: {
+    backgroundColor: '#1E3A5F', // Navy for active (inverted from before)
+    borderColor: '#1E3A5F',
+  },
+  prepareDateTabText: {
+    fontFamily: 'Jua',
+    fontSize: 13,
+    color: '#64748B', // Slate for inactive
+  },
+  prepareDateTabTextActive: {
+    color: '#FFFFFF', // White for active
+  }
 });
 
 

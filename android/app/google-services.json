@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "486155200016",
+    "project_id": "travel-buddy-jet-lag-app",
+    "storage_bucket": "travel-buddy-jet-lag-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:486155200016:android:005abfb4707b0dfda24c95",
+        "android_client_info": {
+          "package_name": "com.travelbuddy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAW_JzeykQKGXrqPlHGBZX32i83HXBfUqM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

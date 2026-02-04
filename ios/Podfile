@@ -14,8 +14,16 @@ if linkage != nil
   use_frameworks! :linkage => linkage.to_sym
 end
 
+# Disable Ad ID Support for simpler App Store submission (No A.T.T. popup required)
+$RNFirebaseAnalyticsWithoutAdIdSupport = true
+
 target 'TravelBuddy' do
   config = use_native_modules!
+  
+  # Enable modular headers ONLY for Firebase dependencies to avoid conflicts
+  pod 'GoogleUtilities', :modular_headers => true
+  pod 'FirebaseCoreInternal', :modular_headers => true
+  pod 'FirebaseCore', :modular_headers => true
 
   use_react_native!(
     :path => config[:reactNativePath],

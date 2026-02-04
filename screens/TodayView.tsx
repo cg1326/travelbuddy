@@ -1,18 +1,28 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal, Image } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as StoreReview from 'react-native-store-review';
 import { usePlans } from '../context/PlanContext';
 import moment from 'moment-timezone';
 import Icon from 'react-native-vector-icons/Feather';
 import { ProgressBar } from '../components/ProgressBar';
+import { getCityTimezone } from '../utils/jetLagAlgorithm';
 
 function formatTo12Hour(time24: string): string {
   if (!time24) return '';
   return moment(time24, 'HH:mm').format('h:mm A');
 }
 
+import ConfettiCannon from 'react-native-confetti-cannon';
+
+
 export default function TodayView({ navigation }: any) {
   const { plans, isLoading, cardStatuses } = usePlans();
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const [showCelebrationModal, setShowCelebrationModal] = useState(false);
+  const [isConfettiActive, setIsConfettiActive] = useState(false);
+  const confettiRef = React.useRef<ConfettiCannon>(null);
+
 
   // Force update every minute to keep countdown fresh
   const [, setTick] = useState(0);
@@ -50,7 +60,7 @@ export default function TodayView({ navigation }: any) {
       const arriveDate = moment(lastSegment.arriveDate);
 
       const prepareStart = departDate.clone().subtract(2, 'days');
-      const adjustEnd = arriveDate.clone().add(2, 'days');
+      const adjustEnd = arriveDate.clone().add(2, 'days').endOf('day');
 
       if (now.isAfter(adjustEnd)) return;
 
@@ -92,6 +102,89 @@ export default function TodayView({ navigation }: any) {
     });
   });
 
+
+  // Calculate progress for the current trip (HOISTED for Confetti logic)
+  let progressRatio = 0;
+  if (activePlan && currentTrip) {
+    const allCards = [
+      ...currentTrip.phases.prepare.cards,
+      ...currentTrip.phases.travel.cards,
+      ...currentTrip.phases.adjust.cards
+    ].filter((c: any) => !c.isInfo);
+
+    const completedCount = allCards.filter((c: any) => {
+      const status = cardStatuses[`${activePlan.id}_${c.id}`];
+      return status === 'done' || status === 'skipped';
+    }).length;
+
+    progressRatio = allCards.length > 0 ? completedCount / allCards.length : 0;
+  }
+
+  // Confetti Trigger Logic
+  React.useEffect(() => {
+    const checkAndFireConfetti = async () => {
+      if (!activePlan || !currentTrip) return;
+
+      const storageKey = `celebrated_completion_${activePlan.id}`;
+
+      if (progressRatio === 1) {
+        // Check if already celebrated today
+        const hasCelebrated = await AsyncStorage.getItem(storageKey);
+        if (!hasCelebrated) {
+          // Fire!
+          setIsConfettiActive(true);
+          setShowCelebrationModal(true);
+          // Mark as celebrated
+          await AsyncStorage.setItem(storageKey, 'true');
+        }
+      } else {
+        // Reset if progress drops below 100% (allows replay if user undos)
+        await AsyncStorage.removeItem(storageKey);
+      }
+    };
+
+    checkAndFireConfetti();
+  }, [progressRatio, activePlan?.id]);
+
+  // Safety trigger for review prompt if progress is >= 50%
+  React.useEffect(() => {
+
+    const triggerReviewIfNeeded = async () => {
+      if (!activePlan || !currentTrip || isLoading) return;
+
+      const allCards = [
+        ...currentTrip.phases.prepare.cards,
+        ...currentTrip.phases.travel.cards,
+        ...currentTrip.phases.adjust.cards
+      ].filter(c => !c.isInfo);
+
+      if (allCards.length === 0) return;
+
+      const completedCount = allCards.filter(c => {
+        const status = cardStatuses[`${activePlan.id}_${c.id}`];
+        return status === 'done' || status === 'skipped';
+      }).length;
+
+      const ratio = completedCount / allCards.length;
+
+      if (ratio >= 0.5) {
+        try {
+          const storageKey = `review_prompt_shown_${activePlan.id}_trip_${tripIndex}`;
+          const hasPrompted = await AsyncStorage.getItem(storageKey);
+
+          if (!hasPrompted) {
+            StoreReview.requestReview();
+            await AsyncStorage.setItem(storageKey, 'true');
+          }
+        } catch (error) {
+          console.error('Error in TodayView review trigger:', error);
+        }
+      }
+    };
+
+    triggerReviewIfNeeded();
+  }, [cardStatuses, activePlan, currentTrip, isLoading]);
+
   if (!activePlan || !currentTrip) {
     return (
       <View style={styles.emptyStateContainer}>
@@ -118,45 +211,31 @@ export default function TodayView({ navigation }: any) {
   }
 
   // Determine timezone from city name
-  const getTimezone = (city: string) => {
-    const timezones: { [key: string]: string } = {
-      'San Diego': 'America/Los_Angeles', 'Los Angeles': 'America/Los_Angeles',
-      'San Francisco': 'America/Los_Angeles', 'Seattle': 'America/Los_Angeles',
-      'Portland': 'America/Los_Angeles', 'Las Vegas': 'America/Los_Angeles',
-      'Phoenix': 'America/Phoenix', 'Denver': 'America/Denver',
-      'Salt Lake City': 'America/Denver', 'Chicago': 'America/Chicago',
-      'Dallas': 'America/Chicago', 'Houston': 'America/Chicago',
-      'Austin': 'America/Chicago', 'Minneapolis': 'America/Chicago',
-      'New Orleans': 'America/Chicago', 'New York': 'America/New_York',
-      'Boston': 'America/New_York', 'Washington': 'America/New_York',
-      'Miami': 'America/New_York', 'Atlanta': 'America/New_York',
-      'Philadelphia': 'America/New_York', 'Vancouver': 'America/Vancouver',
-      'Calgary': 'America/Edmonton', 'Toronto': 'America/Toronto',
-      'Montreal': 'America/Montreal', 'Ottawa': 'America/Toronto',
-      'London': 'Europe/London', 'Paris': 'Europe/Paris',
-      'Tokyo': 'Asia/Tokyo', 'Sydney': 'Australia/Sydney',
-      // ... Add more if needed, simplistic lookup for now
-      'Mexico City': 'America/Mexico_City',
-      'Cancun': 'America/Cancun',
-      'Dubai': 'Asia/Dubai',
-      'Singapore': 'Asia/Singapore',
-    };
-    return timezones[city] || 'America/Los_Angeles';
-  };
-
-  const getTimezoneAbbr = (city: string) => {
-    const abbrs: { [key: string]: string } = {
-      'New York': 'ET', 'London': 'GMT', 'Paris': 'CET', 'Tokyo': 'JST',
-      'Los Angeles': 'PT', 'San Francisco': 'PT',
-    };
-    return abbrs[city] || 'LT';
-  };
-
-  const today = moment().format('YYYY-MM-DD');
-  const departureTimezone = getTimezone(flightTrip.from);
-  const destinationTimezone = getTimezone(flightTrip.to);
+  // Determine timezone from relevant cities
+  const departureTimezone = flightTrip.fromTz || getCityTimezone(flightTrip.from);
+  const destinationTimezone = flightTrip.toTz || getCityTimezone(flightTrip.to);
 
   const nowInDepartureCity = moment.tz(departureTimezone);
+  const nowInDestination = moment.tz(destinationTimezone);
+
+  // Determine "Subjective Today"
+  // If we haven't reached the destination yet (or not in adjustment phase), we are on departure city time.
+  // Once we land/adjust, we are on destination time.
+  // This solves the International Date Line / Midnight flight problem.
+  const arrivalDateTime = moment.tz(
+    `${flightTrip.arriveDate} ${flightTrip.arriveTime}`,
+    'YYYY-MM-DD HH:mm',
+    destinationTimezone
+  );
+  const minutesSinceLanding = nowInDestination.diff(arrivalDateTime, 'minutes');
+
+  const today = minutesSinceLanding > 0
+    ? nowInDestination.format('YYYY-MM-DD')
+    : nowInDepartureCity.format('YYYY-MM-DD');
+
+  const fromAbbr = moment.tz(departureTimezone).zoneAbbr() || 'LT';
+  const toAbbr = moment.tz(destinationTimezone).zoneAbbr() || 'LT';
+
   const flightDateTime = moment.tz(
     `${currentTrip.departDate} ${flightTrip.departTime}`,
     'YYYY-MM-DD HH:mm',
@@ -166,16 +245,8 @@ export default function TodayView({ navigation }: any) {
   const hoursUntilFlight = flightDateTime.diff(nowInDepartureCity, 'hours');
   const minutesUntilFlight = flightDateTime.diff(nowInDepartureCity, 'minutes');
 
-  const arrivalDateTime = moment.tz(
-    `${flightTrip.arriveDate} ${flightTrip.arriveTime}`,
-    'YYYY-MM-DD HH:mm',
-    destinationTimezone
-  );
-  const nowInDestination = moment.tz(destinationTimezone);
-  const minutesSinceLanding = nowInDestination.diff(arrivalDateTime, 'minutes');
-
   // Recalculate diffs more precisely
-  const totalMinutesUntilFlight = flightDateTime.diff(moment(), 'minutes');
+  const totalMinutesUntilFlight = flightDateTime.diff(nowInDepartureCity, 'minutes');
   let timeUntilFlightText = '';
 
   if (minutesSinceLanding > 0) {
@@ -265,11 +336,8 @@ export default function TodayView({ navigation }: any) {
   const nowInRelevantCity = moment.tz(relevantTimezone);
 
   // Parse card times and filter for 0-4 hours from now
-  console.log('=== UPCOMING CARDS DEBUG ===');
-  console.log('Total cards after filtering:', allCards.length);
-  console.log('Current phase:', currentPhase);
-  console.log('Relevant timezone:', relevantTimezone);
-  console.log('Now in relevant city:', nowInRelevantCity.format('YYYY-MM-DD HH:mm'));
+  // Parse card times and filter for 0-4 hours from now
+
 
   let upcomingCards: any[] = [];
 
@@ -278,7 +346,7 @@ export default function TodayView({ navigation }: any) {
     upcomingCards = allCards
       .filter((card: any) => !card.isInfo && card.title !== 'Your Flight')
       .slice(0, 3);
-    console.log('Travel phase: showing', upcomingCards.length, 'actionable travel cards');
+
   } else {
     // For prepare/adjust phases:
     // 1. Filter out cards from the past (stale)
@@ -323,8 +391,6 @@ export default function TodayView({ navigation }: any) {
     }
   }
 
-  console.log('Final upcoming cards count:', upcomingCards.length);
-  console.log('========================\n');
 
   const toggleCard = (cardId: string) => {
     setExpandedCardId(expandedCardId === cardId ? null : cardId);
@@ -476,11 +542,11 @@ export default function TodayView({ navigation }: any) {
   // Determine which timezone to show
   let timezoneInfo = '';
   if (currentPhase === 'prepare') {
-    timezoneInfo = ` ${flightTrip.from} time (${getTimezoneAbbr(flightTrip.from)})`;
+    timezoneInfo = ` ${flightTrip.from} time (${fromAbbr})`;
   } else if (currentPhase === 'travel') {
-    timezoneInfo = ` ${flightTrip.to} time (${getTimezoneAbbr(flightTrip.to)})`;
+    timezoneInfo = ` ${flightTrip.to} time (${toAbbr})`;
   } else if (currentPhase === 'adjust') {
-    timezoneInfo = ` ${flightTrip.to} time (${getTimezoneAbbr(flightTrip.to)})`;
+    timezoneInfo = ` ${flightTrip.to} time (${toAbbr})`;
   }
 
   // LOGIC TO DETERMINE BUTTON ACTION
@@ -527,41 +593,29 @@ export default function TodayView({ navigation }: any) {
   }
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Top info panel */}
-      <View style={styles.topPanel}>
-        <Text style={styles.topPanelDate}>Today: {moment().format('MMM D, YYYY')}</Text>
-        {statusText && <Text style={styles.topPanelStatus}>{statusText}</Text>}
-        <Text style={styles.topPanelFlight}>{timeUntilFlightText}</Text>
-      </View>
-
-      {/* Flight info card - ONLY show if flight is today or in progress */}
-      {showFlightCard && (
-        <View style={styles.flightCard}>
-          <View style={styles.flightInfo}>
-            <Text style={styles.flightTitle}>Your Flight</Text>
-            <Text style={styles.flightTime}>Departs {formatTo12Hour(flightTrip.departTime)}</Text>
-            <Text style={styles.flightRoute}>{flightTrip.from} {'>'} {flightTrip.to}{connectionText}</Text>
-          </View>
-          <Icon name="send" size={24} color="#000000" />
+    <View style={{ flex: 1 }}>
+      <ScrollView style={styles.container}>
+        {/* Top info panel */}
+        <View style={styles.topPanel}>
+          <Text style={styles.topPanelDate}>Today: {(minutesSinceLanding > 0 ? nowInDestination : nowInDepartureCity).format('MMM D, YYYY')}</Text>
+          {statusText && <Text style={styles.topPanelStatus}>{statusText}</Text>}
+          <Text style={styles.topPanelFlight}>{timeUntilFlightText}</Text>
         </View>
-      )}
 
-      {/* Progress Bar - only show if there's an active plan */}
-      {activePlan && currentTrip && (() => {
-        // Calculate progress for the current trip
-        const allCards = [
-          ...currentTrip.phases.prepare.cards,
-          ...currentTrip.phases.travel.cards,
-          ...currentTrip.phases.adjust.cards
-        ];
-        const completedCount = allCards.filter(c => {
-          const status = cardStatuses[`${activePlan.id}_${c.id}`];
-          return status === 'done' || status === 'skipped';
-        }).length;
-        const progressRatio = allCards.length > 0 ? completedCount / allCards.length : 0;
+        {/* Flight info card - ONLY show if flight is today or in progress */}
+        {showFlightCard && (
+          <View style={styles.flightCard}>
+            <View style={styles.flightInfo}>
+              <Text style={styles.flightTitle}>Your Flight</Text>
+              <Text style={styles.flightTime}>Departs {formatTo12Hour(flightTrip.departTime)}</Text>
+              <Text style={styles.flightRoute}>{flightTrip.from} {'>'} {flightTrip.to}{connectionText}</Text>
+            </View>
+            <Icon name="send" size={24} color="#000000" />
+          </View>
+        )}
 
-        return (
+        {/* Progress Bar - only show if there's an active plan */}
+        {activePlan && currentTrip && (
           <View style={{ marginBottom: 24 }}>
             <ProgressBar
               progress={progressRatio}
@@ -569,97 +623,139 @@ export default function TodayView({ navigation }: any) {
               color="#5EDAD9"
             />
           </View>
-        );
-      })()}
+        )}
 
-      {/* Coming up label */}
-      <Text style={styles.comingUpLabel}>Coming up...</Text>
+        {/* Coming up label */}
+        <Text style={styles.comingUpLabel}>Coming up...</Text>
 
-      {/* Action cards - only next 0-4 hours, NO Skip/Done buttons */}
-      {upcomingCards.length > 0 ? (
-        upcomingCards.map((card: any) => {
-          const cardStyle = getCardStyle(card);
-          const isExpanded = expandedCardId === card.id;
+        {/* Action cards - only next 0-4 hours, NO Skip/Done buttons */}
+        {upcomingCards.length > 0 ? (
+          upcomingCards.map((card: any) => {
+            const cardStyle = getCardStyle(card);
+            const isExpanded = expandedCardId === card.id;
 
-          return (
-            <TouchableOpacity
-              key={card.id}
-              style={[styles.actionCard, { backgroundColor: cardStyle.bg }]}
-              onPress={() => toggleCard(card.id)}
-              activeOpacity={0.7}
-            >
-              {/* Info button - positioned absolutely in top-right */}
+            return (
               <TouchableOpacity
-                style={styles.infoButton}
+                key={card.id}
+                style={[styles.actionCard, { backgroundColor: cardStyle.bg }]}
                 onPress={() => toggleCard(card.id)}
+                activeOpacity={0.7}
               >
-                <Icon
-                  name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                  size={20}
-                  color={cardStyle.text}
-                />
-              </TouchableOpacity>
-
-              {/* Card header - matching TripDetails layout */}
-              <View style={styles.cardHeader}>
-                <View style={styles.cardLeft}>
+                {/* Info button - positioned absolutely in top-right */}
+                <TouchableOpacity
+                  style={styles.infoButton}
+                  onPress={() => toggleCard(card.id)}
+                >
                   <Icon
-                    name={getCardIconName(card.title)}
-                    size={22}
+                    name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={20}
                     color={cardStyle.text}
-                    style={styles.cardIconStyle}
                   />
-                  <View style={styles.cardTextContainer}>
-                    <Text style={[styles.cardTitle, { color: cardStyle.text }]}>
-                      {card.title}
-                    </Text>
-                    <Text style={[styles.cardTime, { color: cardStyle.text }]}>
-                      {card.time}
-                    </Text>
+                </TouchableOpacity>
+
+                {/* Card header - matching TripDetails layout */}
+                <View style={styles.cardHeader}>
+                  <View style={styles.cardLeft}>
+                    <Icon
+                      name={getCardIconName(card.title)}
+                      size={22}
+                      color={cardStyle.text}
+                      style={styles.cardIconStyle}
+                    />
+                    <View style={styles.cardTextContainer}>
+                      <Text style={[styles.cardTitle, { color: cardStyle.text }]}>
+                        {card.title}
+                      </Text>
+                      <Text style={[styles.cardTime, { color: cardStyle.text }]}>
+                        {card.time}
+                      </Text>
+                    </View>
                   </View>
                 </View>
-              </View>
 
-              {isExpanded && (
-                <View style={styles.expandedContent}>
-                  <Text style={[styles.expandedLabel, { color: cardStyle.label }]}>Why it helps:</Text>
-                  <Text style={[styles.expandedText, { color: cardStyle.text }]}>{card.why}</Text>
-                  <Text style={[styles.expandedLabel, { color: cardStyle.label }]}>
-                    {(card.title.toLowerCase().includes('melatonin') || card.title.toLowerCase().includes('magnesium'))
-                      ? 'OPTIONAL GUIDANCE:'
-                      : 'How to do it:'}
-                  </Text>
-                  <Text style={[styles.expandedText, { color: cardStyle.text }]}>{card.how}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })
-      ) : (
-        <View style={styles.noActionsCard}>
-          <Text style={styles.noActionsText}>No actions in the next 4 hours</Text>
-          <Text style={styles.noActionsSubtext}>Check back later or view your full plan</Text>
-        </View>
-      )}
+                {isExpanded && (
+                  <View style={styles.expandedContent}>
+                    <Text style={[styles.expandedLabel, { color: cardStyle.label }]}>Why it helps:</Text>
+                    <Text style={[styles.expandedText, { color: cardStyle.text }]}>{card.why}</Text>
+                    <Text style={[styles.expandedLabel, { color: cardStyle.label }]}>
+                      {(card.title.toLowerCase().includes('melatonin') || card.title.toLowerCase().includes('magnesium'))
+                        ? 'OPTIONAL GUIDANCE:'
+                        : 'How to do it:'}
+                    </Text>
+                    <Text style={[styles.expandedText, { color: cardStyle.text }]}>{card.how}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })
+        ) : (
+          <View style={styles.noActionsCard}>
+            <Text style={styles.noActionsText}>No actions in the next 4 hours</Text>
+            <Text style={styles.noActionsSubtext}>Check back later or view your full plan</Text>
+          </View>
+        )}
 
-      {/* View Full Plan button - Changes if no active plan */}
-      <TouchableOpacity
-        style={[
-          styles.viewFullDayButton,
-          !activePlan && { backgroundColor: '#5EDAD9' } // Use teal if creating new plan
-        ]}
-        onPress={handleViewFullDay}
+        {/* View Full Plan button - Changes if no active plan */}
+        <TouchableOpacity
+          style={[
+            styles.viewFullDayButton,
+            !activePlan && { backgroundColor: '#5EDAD9' } // Use teal if creating new plan
+          ]}
+          onPress={handleViewFullDay}
+        >
+          <Text style={[
+            styles.viewFullDayText,
+            !activePlan && { color: '#0D4C4A' }
+          ]}>
+            {activePlan ? 'View Full Plan' : '+ Create New Plan'}
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.spacer} />
+      </ScrollView>
+      <Modal
+        visible={showCelebrationModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowCelebrationModal(false)}
+        onShow={() => {
+          // Wait for slide animation (approx 500ms) then fire confetti
+          setTimeout(() => {
+            confettiRef.current?.start();
+          }, 200);
+        }}
       >
-        <Text style={[
-          styles.viewFullDayText,
-          !activePlan && { color: '#0D4C4A' }
-        ]}>
-          {activePlan ? 'View Full Plan' : '+ Create New Plan'}
-        </Text>
-      </TouchableOpacity>
+        <View style={styles.modalContainer}>
+          <Image
+            source={require('../assets/images/Congrats.png')}
+            style={styles.modalImage}
+            resizeMode="cover"
+          />
 
-      <View style={styles.spacer} />
-    </ScrollView>
+          {isConfettiActive && (
+            <ConfettiCannon
+              count={200}
+              origin={{ x: -10, y: 0 }}
+              autoStart={false}
+              ref={confettiRef}
+              fadeOut={true}
+              fallSpeed={3000}
+              colors={['#5EDAD9', '#0D4C4A', '#2C8C8A', '#E0F7FA', '#FFFFFF']}
+            />
+          )}
+
+          <TouchableOpacity
+            style={styles.modalDoneButton}
+            onPress={() => {
+              setIsConfettiActive(false); // Unmount confetti immediately for smooth exit
+              setShowCelebrationModal(false);
+            }}
+          >
+            <Text style={styles.modalDoneButtonText}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -884,5 +980,32 @@ const styles = StyleSheet.create({
     fontFamily: 'Jua',
     fontSize: 16,
     color: '#0D4C4A',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: '100%',
+    height: '100%',
+    position: 'absolute',
+  },
+  modalDoneButton: {
+    position: 'absolute',
+    bottom: 50,
+    backgroundColor: '#1F4259',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+    width: '80%',
+    zIndex: 100,
+  },
+  modalDoneButtonText: {
+    fontFamily: 'Jua',
+    fontSize: 18,
+    color: '#FFFFFF',
   },
 });

@@ -45,8 +45,18 @@ export default function QuickDelayModal({
         const originalWallClock = moment(originalStr, 'YYYY-MM-DD HH:mm'); // Local mode moment
 
         // 2. Get Picker Time as simple string (it's already local Date)
-        const newTimeStr = moment(tempDate).format('YYYY-MM-DD HH:mm');
-        const newWallClock = moment(newTimeStr, 'YYYY-MM-DD HH:mm'); // Local mode moment
+        let newTimeStr = moment(tempDate).format('YYYY-MM-DD HH:mm');
+        let newWallClock = moment(newTimeStr, 'YYYY-MM-DD HH:mm'); // Local mode moment
+
+        // AUTOMATIC OVERNIGHT DETECTION
+        // If the user selects a time that is "earlier" than the original scheduled time 
+        // (e.g. Org: 2pm, Sel: 1am), we assume it means the NEXT day (1am tomorrow).
+        // Since the picker defaults to the same date, a simple isBefore check works.
+        if (newWallClock.isBefore(originalWallClock)) {
+            console.log('[QuickDelay] Selected time is before original. Assuming next day.');
+            newWallClock.add(1, 'day');
+            newTimeStr = newWallClock.format('YYYY-MM-DD HH:mm');
+        }
 
         const diffMinutes = newWallClock.diff(originalWallClock, 'minutes');
 
@@ -104,7 +114,7 @@ export default function QuickDelayModal({
                             setShowPicker(!showPicker); // Toggle instead of always true
                         }}
                     >
-                        <Text style={styles.customButtonText}>Set Custom Arrival Time</Text>
+                        <Text style={styles.customButtonText}>Set custom arrival time</Text>
                         <Icon name="chevron-right" size={20} color="#1E293B" />
                     </TouchableOpacity>
 

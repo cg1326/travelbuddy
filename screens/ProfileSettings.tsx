@@ -7,7 +7,11 @@ import {
   StyleSheet,
   Switch,
   Platform,
+  Image,
+  Dimensions,
+  Modal,
 } from 'react-native';
+import Icon from 'react-native-vector-icons/Feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { usePlans } from '../context/PlanContext';
 import {
@@ -39,6 +43,9 @@ export default function ProfileSettings() {
   const [showWakeTimePicker, setShowWakeTimePicker] = useState(false);
   const [selectedBedtime, setSelectedBedtime] = useState(new Date());
   const [selectedWakeTime, setSelectedWakeTime] = useState(new Date());
+
+  // About Us Modal State
+  const [showAboutModal, setShowAboutModal] = useState(false);
 
   // Notification settings state
   const [notifSettings, setNotifSettings] = useState<NotificationSettings>({
@@ -123,6 +130,12 @@ export default function ProfileSettings() {
     <View style={styles.outerContainer}>
       <View style={styles.header}>
         <Text style={styles.title}>Your Profile</Text>
+        <TouchableOpacity onPress={() => setShowAboutModal(true)}>
+          <Image
+            source={require('../assets/images/iconplane.png')}
+            style={{ width: 40, height: 40, resizeMode: 'contain' }}
+          />
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.container}>
@@ -268,7 +281,33 @@ export default function ProfileSettings() {
 
         <View style={styles.spacer} />
       </ScrollView>
-    </View>
+      {/* Removed premature closing View tag */}
+
+      {/* About Us Modal */}
+      <Modal
+        visible={showAboutModal}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowAboutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowAboutModal(false)}
+            >
+              <Icon name="x" size={24} color="#1E293B" />
+            </TouchableOpacity>
+
+            <Image
+              source={require('../assets/images/About Us.png')}
+              style={styles.aboutImage}
+              resizeMode="contain"
+            />
+          </View>
+        </View>
+      </Modal>
+    </View >
   );
 }
 
@@ -282,6 +321,9 @@ const styles = StyleSheet.create({
     paddingTop: 76,
     paddingHorizontal: 16,
     paddingBottom: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   container: {
     flex: 1,
@@ -392,5 +434,34 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 24,
     marginHorizontal: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: Dimensions.get('window').width * 0.9,
+    height: Dimensions.get('window').height * 0.8,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    zIndex: 10,
+    padding: 8,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 20,
+  },
+  aboutImage: {
+    width: '100%',
+    flex: 1, // Use flex instead of 100% height to properly respect margins/padding without overflow
+    marginTop: 20,
   },
 });

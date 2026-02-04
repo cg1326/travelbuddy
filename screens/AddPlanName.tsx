@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import Icon from 'react-native-vector-icons/Feather';
 
 export default function AddPlanName({ route, navigation }: any) {
   const { mode, existingPlan } = route.params || {};
@@ -21,7 +22,20 @@ export default function AddPlanName({ route, navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{isEditMode ? 'Edit Plan' : 'Name Your Plan'}</Text>
+      {/* ────── Custom Header ────── */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+        >
+          <Icon name="chevron-left" size={28} color="#1E293B" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{isEditMode ? 'Edit Plan' : 'Create New Plan'}</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <Text style={styles.title}>Name Your Plan</Text>
 
       <View style={styles.card}>
         <TextInput
@@ -49,7 +63,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F8FAFC',
     padding: 16,
-    paddingTop: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 20,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+    height: 44,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  headerTitle: {
+    fontFamily: 'Jua',
+    fontSize: 18,
+    color: '#1E293B',
+    textAlign: 'center',
+    flex: 1,
   },
   title: {
     fontFamily: 'Jua',
