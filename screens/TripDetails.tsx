@@ -145,19 +145,96 @@ export default function TripDetail({ route, navigation }: any) {
   const [actionsBottom, setActionsBottom] = useState(0);
   const [showDelayModal, setShowDelayModal] = useState(false);
   const [showConflictModal, setShowConflictModal] = useState(false);
+  const [conflictMessage, setConflictMessage] = useState<string>('This delay causes your arrival to overlap with your next flight\'s departure.');
   const [pendingUpdateTrips, setPendingUpdateTrips] = useState<any[] | null>(null);
 
-  const handleApplyDelay = (minutes: number) => {
+
+  const handleApplyDelay = (minutes: number, segmentIndex?: number) => {
     const updatedTrips = [...plan.trips];
-    // Use plan.trips from context/route to ensure we have the array
     const tripToUpdate = plan.trips[currentTripIndex];
     if (!tripToUpdate) return;
 
-    // Parse current times
+    // SEGMENT-LEVEL DELAY (multi-leg trips)
+    if (segmentIndex !== undefined && tripToUpdate.segments && tripToUpdate.segments.length > 0) {
+      const updatedSegments = [...tripToUpdate.segments];
+      const segment = updatedSegments[segmentIndex];
+
+      // Update selected segment times
+      const segDepart = moment(`${segment.departDate} ${segment.departTime}`, 'YYYY-MM-DD HH:mm').add(minutes, 'minutes');
+      const segArrive = moment(`${segment.arriveDate} ${segment.arriveTime}`, 'YYYY-MM-DD HH:mm').add(minutes, 'minutes');
+
+      updatedSegments[segmentIndex] = {
+        ...segment,
+        departDate: segDepart.format('YYYY-MM-DD'),
+        departTime: segDepart.format('HH:mm'),
+        arriveDate: segArrive.format('YYYY-MM-DD'),
+        arriveTime: segArrive.format('HH:mm'),
+      };
+
+      // Check for missed connection with next segment
+      if (segmentIndex < updatedSegments.length - 1) {
+        const nextSegment = updatedSegments[segmentIndex + 1];
+        const nextDepartTime = moment(`${nextSegment.departDate} ${nextSegment.departTime}`, 'YYYY-MM-DD HH:mm');
+
+        if (segArrive.isAfter(nextDepartTime)) {
+          // Show conflict modal for missed connection
+          setConflictMessage(`This delay causes you to miss your connecting flight from ${segment.to} to ${nextSegment.to}.`);
+          setPendingUpdateTrips([{
+            ...tripToUpdate,
+            segments: updatedSegments,
+          }]);
+          setShowConflictModal(true);
+          return;
+        }
+      }
+
+      // Update trip-level times if first or last segment
+      let tripDepartDate = tripToUpdate.departDate;
+      let tripDepartTime = tripToUpdate.departTime;
+      let tripArriveDate = tripToUpdate.arriveDate;
+      let tripArriveTime = tripToUpdate.arriveTime;
+
+      if (segmentIndex === 0) {
+        tripDepartDate = segDepart.format('YYYY-MM-DD');
+        tripDepartTime = segDepart.format('HH:mm');
+      }
+
+      if (segmentIndex === updatedSegments.length - 1) {
+        tripArriveDate = segArrive.format('YYYY-MM-DD');
+        tripArriveTime = segArrive.format('HH:mm');
+      }
+
+      updatedTrips[currentTripIndex] = {
+        ...tripToUpdate,
+        departDate: tripDepartDate,
+        departTime: tripDepartTime,
+        arriveDate: tripArriveDate,
+        arriveTime: tripArriveTime,
+        segments: updatedSegments,
+      };
+
+      // Check for conflict with next trip (only if last segment was delayed)
+      if (segmentIndex === updatedSegments.length - 1) {
+        const nextTrip = plan.trips[currentTripIndex + 1];
+        if (nextTrip) {
+          const nextDepart = moment(`${nextTrip.departDate} ${nextTrip.departTime}`, 'YYYY-MM-DD HH:mm');
+          if (segArrive.isAfter(nextDepart)) {
+            setConflictMessage('This delay causes your arrival to overlap with your next flight\'s departure.');
+            setPendingUpdateTrips(updatedTrips);
+            setShowConflictModal(true);
+            return;
+          }
+        }
+      }
+
+      performPlanUpdate(updatedTrips);
+      return;
+    }
+
+    // TRIP-LEVEL DELAY (single flight or legacy behavior)
     const departMoment = moment(`${tripToUpdate.departDate} ${tripToUpdate.departTime}`, 'YYYY-MM-DD HH:mm');
     const arriveMoment = moment(`${tripToUpdate.arriveDate} ${tripToUpdate.arriveTime}`, 'YYYY-MM-DD HH:mm');
 
-    // Add delay
     const newDepart = departMoment.add(minutes, 'minutes');
     const newArrive = arriveMoment.add(minutes, 'minutes');
 
@@ -186,7 +263,6 @@ export default function TripDetail({ route, navigation }: any) {
       };
     }
 
-    // Update trip in array
     updatedTrips[currentTripIndex] = {
       ...tripToUpdate,
       departDate: newDepart.format('YYYY-MM-DD'),
@@ -201,10 +277,9 @@ export default function TripDetail({ route, navigation }: any) {
     if (nextTrip) {
       const nextDepart = moment(`${nextTrip.departDate} ${nextTrip.departTime}`, 'YYYY-MM-DD HH:mm');
       if (newArrive.isAfter(nextDepart)) {
-        // Show custom conflict modal
+        setConflictMessage('This delay causes your arrival to overlap with your next flight\'s departure.');
         setPendingUpdateTrips(updatedTrips);
         setShowConflictModal(true);
-        return;
         return;
       }
     }
@@ -1433,6 +1508,7 @@ export default function TripDetail({ route, navigation }: any) {
         visible={showDelayModal}
         onClose={() => setShowDelayModal(false)}
         onApplyDelay={handleApplyDelay}
+        segments={trip.segments}
         scheduledArriveTime={(() => {
           const lastSegment = trip.segments && trip.segments.length > 0
             ? trip.segments[trip.segments.length - 1]
@@ -1448,6 +1524,7 @@ export default function TripDetail({ route, navigation }: any) {
       {/* Conflict Warning Modal */}
       <ConflictModal
         visible={showConflictModal}
+        message={conflictMessage}
         onCancel={() => {
           setShowConflictModal(false);
           setPendingUpdateTrips(null);

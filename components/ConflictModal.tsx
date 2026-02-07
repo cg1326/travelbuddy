@@ -6,12 +6,16 @@ interface ConflictModalProps {
     visible: boolean;
     onCancel: () => void;
     onUpdateAnyway: () => void;
+    title?: string;
+    message?: string;
 }
 
 export default function ConflictModal({
     visible,
     onCancel,
     onUpdateAnyway,
+    title = 'Connection Conflict',
+    message = 'This delay causes your arrival to overlap with your next flight\'s departure.',
 }: ConflictModalProps) {
     return (
         <Modal
@@ -26,10 +30,10 @@ export default function ConflictModal({
                         <Icon name="alert-triangle" size={32} color="#F59E0B" />
                     </View>
 
-                    <Text style={styles.title}>Connection Conflict</Text>
+                    <Text style={styles.title}>{title}</Text>
 
                     <Text style={styles.message}>
-                        This delay causes your arrival to overlap with your next flight's departure.
+                        {message}
                     </Text>
 
                     <Text style={styles.question}>

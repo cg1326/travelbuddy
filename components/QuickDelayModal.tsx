@@ -1,14 +1,24 @@
 import React, { useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, Modal, TouchableOpacity, StyleSheet, Platform, ScrollView } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
 import Icon from 'react-native-vector-icons/Feather';
 
+interface TripSegment {
+    from: string;
+    to: string;
+    departDate: string;
+    departTime: string;
+    arriveDate: string;
+    arriveTime: string;
+}
+
 interface QuickDelayModalProps {
     visible: boolean;
     onClose: () => void;
-    onApplyDelay: (minutes: number) => void;
+    onApplyDelay: (minutes: number, segmentIndex?: number) => void;
     scheduledArriveTime: moment.Moment;
+    segments?: TripSegment[];
 }
 
 export default function QuickDelayModal({
@@ -16,14 +26,19 @@ export default function QuickDelayModal({
     onClose,
     onApplyDelay,
     scheduledArriveTime,
+    segments,
 }: QuickDelayModalProps) {
     const [showPicker, setShowPicker] = useState(false);
-    // Default picker to scheduled time or current time? Scheduled makes most sense as base.
     const [tempDate, setTempDate] = useState<Date>(scheduledArriveTime.toDate());
+    const [selectedSegmentIndex, setSelectedSegmentIndex] = useState<number | null>(null);
+
+    const isMultiLeg = segments && segments.length > 1;
+    const showSegmentSelection = isMultiLeg && selectedSegmentIndex === null;
 
     const handleQuickOption = (minutes: number) => {
-        onApplyDelay(minutes);
+        onApplyDelay(minutes, selectedSegmentIndex ?? undefined);
         onClose();
+        setSelectedSegmentIndex(null);
     };
 
     const handleCustomTimeChange = (event: any, selectedDate?: Date) => {
@@ -58,6 +73,7 @@ export default function QuickDelayModal({
             newTimeStr = newWallClock.format('YYYY-MM-DD HH:mm');
         }
 
+
         const diffMinutes = newWallClock.diff(originalWallClock, 'minutes');
 
         console.log('[QuickDelay] applyCustomTime debug:');
@@ -65,8 +81,15 @@ export default function QuickDelayModal({
         console.log('  New (Wall):', newTimeStr);
         console.log('  Diff minutes:', diffMinutes);
 
-        onApplyDelay(diffMinutes);
+        onApplyDelay(diffMinutes, selectedSegmentIndex ?? undefined);
         onClose();
+        setShowPicker(false);
+        setSelectedSegmentIndex(null);
+    };
+
+    const handleClose = () => {
+        onClose();
+        setSelectedSegmentIndex(null);
         setShowPicker(false);
     };
 
@@ -86,62 +109,90 @@ export default function QuickDelayModal({
                         </TouchableOpacity>
                     </View>
 
-                    <Text style={styles.subtitle}>
-                        Quickly adjust your arrival time. This will shift your entire schedule.
-                    </Text>
 
-                    <View style={styles.optionsGrid}>
-                        <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(15)}>
-                            <Text style={styles.optionText}>+15 min</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(30)}>
-                            <Text style={styles.optionText}>+30 min</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(60)}>
-                            <Text style={styles.optionText}>+1 hour</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(120)}>
-                            <Text style={styles.optionText}>+2 hours</Text>
-                        </TouchableOpacity>
-                    </View>
+                    {showSegmentSelection ? (
+                        <>
+                            <Text style={styles.subtitle}>
+                                Which flight is delayed?
+                            </Text>
 
-                    <TouchableOpacity
-                        style={styles.customButton}
-                        onPress={() => {
-                            if (!showPicker) {
-                                setTempDate(scheduledArriveTime.toDate()); // Reset to current schedule on open
-                            }
-                            setShowPicker(!showPicker); // Toggle instead of always true
-                        }}
-                    >
-                        <Text style={styles.customButtonText}>Set custom arrival time</Text>
-                        <Icon name="chevron-right" size={20} color="#1E293B" />
-                    </TouchableOpacity>
+                            <ScrollView style={styles.segmentList} showsVerticalScrollIndicator={false}>
+                                {segments!.map((segment, index) => (
+                                    <TouchableOpacity
+                                        key={index}
+                                        style={styles.segmentButton}
+                                        onPress={() => setSelectedSegmentIndex(index)}
+                                    >
+                                        <View style={styles.segmentIcon}>
+                                            <Icon name="send" size={18} color="#5EDAD9" />
+                                        </View>
+                                        <View style={styles.segmentInfo}>
+                                            <Text style={styles.segmentRoute}>
+                                                {segment.from} → {segment.to}
+                                            </Text>
+                                            <Text style={styles.segmentTime}>
+                                                Departs: {moment(`${segment.departDate} ${segment.departTime}`, 'YYYY-MM-DD HH:mm').format('MMM D, h:mm A')}
+                                            </Text>
+                                        </View>
+                                        <Icon name="chevron-right" size={20} color="#94A3B8" />
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        </>
+                    ) : (
+                        <>
+                            <Text style={styles.subtitle}>
+                                {isMultiLeg
+                                    ? `Adjust arrival time for ${segments![selectedSegmentIndex!].from} → ${segments![selectedSegmentIndex!].to}`
+                                    : 'Quickly adjust your arrival time. This will shift your entire schedule.'}
+                            </Text>
 
-                    {/* Inline picker for iOS, Modal for Android logic handled by conditional render/state if needed, 
-                but here we just show/hide based on showPicker state which works for both if managed right.
-                For iOS usually displayed inline or in a separate view.
-            */}
-                    {showPicker && (
-                        <View style={styles.pickerContainer}>
-                            {/* iOS Picker / Android Trigger */}
-                            <DateTimePicker
-                                value={tempDate}
-                                mode="time" // Or datetime? Likely just time needed but if delay crosses midnight... datetime is safer.
-                                // Actually, if delay is huge (days), we need date.
-                                // "Quick Delay" usually assumes same day or next day connection.
-                                // Let's use 'datetime' to be safe.
-                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                onChange={handleCustomTimeChange}
-                                themeVariant="light" // Force light theme for consistency
-                            />
-
-                            {Platform.OS === 'ios' && (
-                                <TouchableOpacity style={styles.applyButton} onPress={applyCustomTime}>
-                                    <Text style={styles.applyButtonText}>Confirm New Time</Text>
+                            <View style={styles.optionsGrid}>
+                                <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(15)}>
+                                    <Text style={styles.optionText}>+15 min</Text>
                                 </TouchableOpacity>
+                                <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(30)}>
+                                    <Text style={styles.optionText}>+30 min</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(60)}>
+                                    <Text style={styles.optionText}>+1 hour</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(120)}>
+                                    <Text style={styles.optionText}>+2 hours</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <TouchableOpacity
+                                style={styles.customButton}
+                                onPress={() => {
+                                    if (!showPicker) {
+                                        setTempDate(scheduledArriveTime.toDate());
+                                    }
+                                    setShowPicker(!showPicker);
+                                }}
+                            >
+                                <Text style={styles.customButtonText}>Set custom arrival time</Text>
+                                <Icon name="chevron-right" size={20} color="#1E293B" />
+                            </TouchableOpacity>
+
+                            {showPicker && (
+                                <View style={styles.pickerContainer}>
+                                    <DateTimePicker
+                                        value={tempDate}
+                                        mode="time"
+                                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                        onChange={handleCustomTimeChange}
+                                        themeVariant="light"
+                                    />
+
+                                    {Platform.OS === 'ios' && (
+                                        <TouchableOpacity style={styles.applyButton} onPress={applyCustomTime}>
+                                            <Text style={styles.applyButtonText}>Confirm New Time</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
                             )}
-                        </View>
+                        </>
                     )}
                 </View>
             </View>
@@ -236,5 +287,39 @@ const styles = StyleSheet.create({
         fontFamily: 'Jua',
         fontSize: 16,
         color: '#0F766E',
+    },
+    segmentList: {
+        maxHeight: 300,
+        marginBottom: 16,
+    },
+    segmentButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#F8FAFC',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#E2E8F0',
+    },
+    segmentIcon: {
+        backgroundColor: '#E0F7F6',
+        padding: 8,
+        borderRadius: 8,
+        marginRight: 12,
+    },
+    segmentInfo: {
+        flex: 1,
+    },
+    segmentRoute: {
+        fontFamily: 'Jua',
+        fontSize: 16,
+        color: '#1E293B',
+        marginBottom: 4,
+    },
+    segmentTime: {
+        fontFamily: 'Jua',
+        fontSize: 14,
+        color: '#64748B',
     },
 });
