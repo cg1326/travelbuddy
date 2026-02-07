@@ -299,7 +299,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = TQ48K75R8J;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = TravelBuddy/Info.plist;
@@ -309,7 +309,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.41;
+				MARKETING_VERSION = 1.42;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",
@@ -329,7 +329,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = TQ48K75R8J;
 				INFOPLIST_FILE = TravelBuddy/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
@@ -338,7 +338,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.41;
+				MARKETING_VERSION = 1.42;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-ObjC",

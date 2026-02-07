@@ -30,6 +30,14 @@
 				<string>35F9.1</string>
 			</array>
 		</dict>
+		<dict>
+			<key>NSPrivacyAccessedAPIType</key>
+			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
+			<key>NSPrivacyAccessedAPITypeReasons</key>
+			<array>
+				<string>85F4.1</string>
+			</array>
+		</dict>
 	</array>
 	<key>NSPrivacyCollectedDataTypes</key>
 	<array>
@@ -38,25 +46,25 @@
 			<string>NSPrivacyCollectedDataTypeDeviceID</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<false/>
-			<key>NSPrivacyCollectedDataTypeTracking</key>
-			<false/>
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
 		</dict>
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<false/>
-			<key>NSPrivacyCollectedDataTypeTracking</key>
-			<false/>
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
 		</dict>
 	</array>
 	<key>NSPrivacyTracking</key>

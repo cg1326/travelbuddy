@@ -82,15 +82,17 @@ export default function ReviewPlan({ route, navigation }: any) {
       console.log('Mode:', mode);
       console.log('Existing Plan ID:', existingPlanId);
 
+      const safePlanName = planName || (localTrips.length > 0 ? `Trip to ${localTrips[0].to}` : 'My Trip');
+
       let savedPlan;
       if (mode === 'edit' && existingPlanId) {
         // UPDATE existing plan
         console.log('✏️ Updating existing plan');
-        savedPlan = updatePlan(existingPlanId, planName, localTrips);
+        savedPlan = updatePlan(existingPlanId, safePlanName, localTrips);
       } else {
         // CREATE new plan
         console.log('➕ Creating new plan');
-        savedPlan = addPlan(planName, localTrips);
+        savedPlan = addPlan(safePlanName, localTrips);
 
         // ANALYTICS: Log Trip Created
         if (savedPlan) {

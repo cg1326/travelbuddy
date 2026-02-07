@@ -1,5 +1,7 @@
 import moment from 'moment-timezone';
 import SunCalc from 'suncalc';
+import cityTimezonesLib from 'city-timezones';
+import airportCodesLib from 'airport-codes';
 
 export interface Connection {
   city: string;
@@ -109,7 +111,7 @@ export const JetLagConfig = {
 };
 
 
-export const cityTimezones: { [key: string]: string } = {
+export const LEGACY_CITY_TIMEZONES: { [key: string]: string } = {
   'San Diego': 'America/Los_Angeles',
   'Los Angeles': 'America/Los_Angeles',
   'San Francisco': 'America/Los_Angeles',
@@ -143,6 +145,7 @@ export const cityTimezones: { [key: string]: string } = {
   'Lisbon': 'Europe/Lisbon',
   'Madrid': 'Europe/Madrid',
   'Barcelona': 'Europe/Madrid',
+  'San Sebastian': 'Europe/Madrid',  // EAS airport
   'Paris': 'Europe/Paris',
   'Brussels': 'Europe/Brussels',
   'Amsterdam': 'Europe/Amsterdam',
@@ -192,6 +195,40 @@ export const cityTimezones: { [key: string]: string } = {
   'Hong Kong': 'Asia/Hong_Kong',
   'Taipei': 'Asia/Taipei',
   'Puerto Natales': 'America/Punta_Arenas',
+  // Popular Vacation Destinations (Batch 1)
+  'Philipsburg': 'America/Lower_Princes',  // St Maarten (SXM)
+  'Punta Cana': 'America/Santo_Domingo',  // Dominican Republic (PUJ)
+  'Bora Bora': 'Pacific/Tahiti',  // French Polynesia (BOB)
+  'Thira': 'Europe/Athens',  // Santorini (JTR)
+  'Mykonos': 'Europe/Athens',  // Greece (JMK)
+  'Ibiza': 'Europe/Madrid',  // Spain (IBZ)
+  'Providenciales': 'America/Grand_Turk',  // Turks and Caicos (PLS)
+  'Kahului': 'Pacific/Honolulu',  // Maui (OGG)
+  'Kona': 'Pacific/Honolulu',  // Big Island (KOA)
+  'Hamilton': 'Atlantic/Bermuda',  // Bermuda (BDA)
+  'Vieux Fort': 'America/St_Lucia',  // St Lucia (UVF)
+  'Victoria': 'Indian/Mahe',  // Seychelles (SEZ)
+  // Popular Vacation Destinations (Batch 2)
+  'Oranjestad': 'America/Aruba',  // Aruba (AUA)
+  'Willemstad': 'America/Curacao',  // Curacao (CUR)
+  'Bridgetown': 'America/Barbados',  // Barbados (BGI)
+  'Montego Bay': 'America/Jamaica',  // Jamaica (MBJ)
+  'George Town': 'America/Cayman',  // Grand Cayman (GCM)
+  'St. Thomas': 'America/St_Thomas',  // US Virgin Islands (STT)
+  'Christiansted': 'America/St_Thomas',  // St Croix (STX)
+  'Point Salines': 'America/Grenada',  // Grenada (GND)
+  'Ko Samui': 'Asia/Bangkok',  // Koh Samui (USM)
+  'Langkawi': 'Asia/Kuala_Lumpur',  // Malaysia (LGK)
+  'Caticlan': 'Asia/Manila',  // Boracay (MPH)
+  'Plaisance': 'Indian/Mauritius',  // Mauritius (MRU)
+  'Valletta': 'Europe/Malta',  // Malta (MLA)
+  'Heraklion': 'Europe/Athens',  // Crete (HER)
+  'Rhodes': 'Europe/Athens',  // Rhodes (RHO)
+  'Corfu': 'Europe/Athens',  // Corfu (CFU)
+  'Palma': 'Europe/Madrid',  // Mallorca (PMI)
+  'Mahon': 'Europe/Madrid',  // Menorca (MAH)
+  'Lihue': 'Pacific/Honolulu',  // Kauai (LIH)
+  'Tenerife': 'Atlantic/Canary',  // Canary Islands (TFS)
   // North America (New)
   'Portland': 'America/Los_Angeles',
   'Salt Lake City': 'America/Denver',
@@ -315,7 +352,7 @@ export const cityTimezones: { [key: string]: string } = {
   'Manama': 'Asia/Bahrain',
 };
 
-export const cityCoordinates: { [key: string]: { lat: number; lng: number } } = {
+export const LEGACY_CITY_COORDINATES: { [key: string]: { lat: number; lng: number } } = {
   // North America
   'San Diego': { lat: 32.7157, lng: -117.1611 },
   'Los Angeles': { lat: 34.0522, lng: -118.2437 },
@@ -568,6 +605,7 @@ export const airportMappings: { [key: string]: string } = {
   'LIS': 'Lisbon',
   'MAD': 'Madrid',
   'BCN': 'Barcelona',
+  'EAS': 'San Sebastian',
   'CDG': 'Paris', 'ORY': 'Paris',
   'BRU': 'Brussels',
   'AMS': 'Amsterdam',
@@ -633,6 +671,41 @@ export const airportMappings: { [key: string]: string } = {
   'PER': 'Perth',
   'AKL': 'Auckland',
   'UKY': 'Kyoto', // Unofficial/Fictional code for Kyoto or use ITM/KIX as Osaka serves it. Let's remove duplicate KIX.
+
+  // Popular Vacation Destinations (Batch 1)
+  'SXM': 'Philipsburg',  // St Maarten
+  'PUJ': 'Punta Cana',  // Dominican Republic
+  'BOB': 'Bora Bora',  // French Polynesia
+  'JTR': 'Thira',  // Santorini
+  'JMK': 'Mykonos',  // Greece
+  'IBZ': 'Ibiza',  // Spain
+  'PLS': 'Providenciales',  // Turks and Caicos
+  'OGG': 'Kahului',  // Maui
+  'KOA': 'Kona',  // Big Island
+  'BDA': 'Hamilton',  // Bermuda
+  'UVF': 'Vieux Fort',  // St Lucia
+  'SEZ': 'Victoria',  // Seychelles
+  // Popular Vacation Destinations (Batch 2)
+  'AUA': 'Oranjestad',  // Aruba
+  'CUR': 'Willemstad',  // Curacao
+  'BGI': 'Bridgetown',  // Barbados
+  'MBJ': 'Montego Bay',  // Jamaica
+  'GCM': 'George Town',  // Grand Cayman
+  'STT': 'St. Thomas',  // US Virgin Islands
+  'STX': 'Christiansted',  // St Croix
+  'GND': 'Point Salines',  // Grenada
+  'USM': 'Ko Samui',  // Koh Samui, Thailand
+  'LGK': 'Langkawi',  // Malaysia
+  'MPH': 'Caticlan',  // Boracay, Philippines
+  'MRU': 'Plaisance',  // Mauritius
+  'MLA': 'Valletta',  // Malta
+  'HER': 'Heraklion',  // Crete
+  'RHO': 'Rhodes',  // Greece
+  'CFU': 'Corfu',  // Greece
+  'PMI': 'Palma',  // Mallorca
+  'MAH': 'Mahon',  // Menorca
+  'LIH': 'Lihue',  // Kauai
+  'TFS': 'Tenerife',  // Canary Islands
   // Actually, let's just map ITM explicitly if not there, or remove the duplicate.
   // 'KIX' is Osaka. Kyoto doesn't have its own major intl airport, it uses KIX/ITM.
   // So I will just remove the explicit Kyoto 'KIX' line.
@@ -769,45 +842,140 @@ function formatTimeRange12Hour(start: string, end: string): string {
   return `${formatTime12Hour(start)} - ${formatTime12Hour(end)}`;
 }
 
+/**
+ * Robustly finds a city in the city-timezones library.
+ * Checks exact match, then case-insensitive match on both Name and ASCII Name.
+ * Handles "San Sebastian" matching "San Sebastián".
+ */
+export function findCityUniversal(city: string): any | null {
+  if (!city) return null;
+  const cleanCity = city.trim();
+
+  // 1. Direct Lookup (Fast)
+  const direct = cityTimezonesLib.lookupViaCity(cleanCity);
+  if (direct && direct.length > 0) return direct[0];
+
+  // 2. Robust Search (Case-insensitive & ASCII mapping)
+  const lowerCity = cleanCity.toLowerCase();
+
+  // cityTimezonesLib.cityMapping is the raw array of all cities
+  const match = cityTimezonesLib.cityMapping.find((c: any) =>
+    (c.city_ascii && c.city_ascii.toLowerCase() === lowerCity) ||
+    (c.city && c.city.toLowerCase() === lowerCity)
+  );
+
+  return match || null;
+  return match || null;
+}
+
+/**
+ * Universal IATA Lookup
+ * Uses airport-codes lib to find IATA -> City Name
+ */
+export function findCityByIATA(iata: string): string | null {
+  if (!iata || iata.length !== 3) return null;
+  const code = iata.toUpperCase();
+
+  // "airport-codes" maps are Backbone-like but likely just an array in this usage or .findWhere
+  // Looking at the lib structure, it exports a collection. 
+  // We can treat it as a list if we use .findWhere or similar, or iterate.
+  // The simplest usage for 'airport-codes' (based on typical npm package usage)
+  // is often `airports.findWhere({ iata: 'EAS' })`.
+
+  // Let's protect against library structure variations:
+  let match = null;
+  // @ts-ignore
+  if (typeof airportCodesLib.findWhere === 'function') {
+    // @ts-ignore
+    match = airportCodesLib.findWhere({ iata: code });
+  }
+
+  if (match) {
+    // 'get' is Backbone style
+    const city = match.get('city');
+    return city || null;
+  }
+  return null;
+}
+
 export function getCityTimezone(city: string): string {
   if (!city) return 'UTC';
 
   const cleanCity = city.trim();
 
-  // Check exact match first
-  if (cityTimezones[cleanCity]) {
-    return cityTimezones[cleanCity];
+  // 1. Check Exact Legacy Match
+  if (LEGACY_CITY_TIMEZONES[cleanCity]) {
+    return LEGACY_CITY_TIMEZONES[cleanCity];
   }
 
-  // Check case-insensitive match
+  // 2. Check Case-Insensitive Legacy Match
   const lowerCity = cleanCity.toLowerCase();
-  const matchedKey = Object.keys(cityTimezones).find(k => k.toLowerCase() === lowerCity);
+  const matchedKey = Object.keys(LEGACY_CITY_TIMEZONES).find(k => k.toLowerCase() === lowerCity);
   if (matchedKey) {
-    return cityTimezones[matchedKey];
+    return LEGACY_CITY_TIMEZONES[matchedKey];
   }
 
-  // Check if it's an airport code mapping to a city
+  // 3. Check Airport Maps -> Legacy
   const cityFromCode = airportMappings[cleanCity];
+  if (cityFromCode && LEGACY_CITY_TIMEZONES[cityFromCode]) {
+    return LEGACY_CITY_TIMEZONES[cityFromCode];
+  }
+
+  // 4. Universal Lookup (Library + Robust)
+  const universal = findCityUniversal(cleanCity);
+  if (universal) {
+    return universal.timezone;
+  }
+
+  // 5. Try mapped city name in Library (e.g. Code -> City -> Lib)
   if (cityFromCode) {
-    if (cityTimezones[cityFromCode]) {
-      return cityTimezones[cityFromCode];
+    const universal2 = findCityUniversal(cityFromCode);
+    if (universal2) {
+      return universal2.timezone;
     }
   }
 
   return 'UTC';
 }
 
+export function getCityCoordinates(city: string): { lat: number; lng: number } | null {
+  if (!city) return null;
+  const cleanCity = city.trim();
+
+  // 1. Legacy
+  if (LEGACY_CITY_COORDINATES[cleanCity]) return LEGACY_CITY_COORDINATES[cleanCity];
+
+  const lowerCity = cleanCity.toLowerCase();
+  const matchedKey = Object.keys(LEGACY_CITY_COORDINATES).find(k => k.toLowerCase() === lowerCity);
+  if (matchedKey) return LEGACY_CITY_COORDINATES[matchedKey];
+
+  // Airport
+  const cityFromCode = airportMappings[cleanCity];
+  if (cityFromCode && LEGACY_CITY_COORDINATES[cityFromCode]) return LEGACY_CITY_COORDINATES[cityFromCode];
+
+  // 2. Library
+  const universal = findCityUniversal(cleanCity);
+  if (universal) return { lat: universal.lat, lng: universal.lng };
+
+  if (cityFromCode) {
+    const universal2 = findCityUniversal(cityFromCode);
+    if (universal2) return { lat: universal2.lat, lng: universal2.lng };
+  }
+
+  return null;
+}
+
 function calculateTimezoneDiff(from: string, to: string, date: string, fromTzOverride?: string, toTzOverride?: string): number {
   const fromTz = fromTzOverride || getCityTimezone(from);
   const toTz = toTzOverride || getCityTimezone(to);
 
-  if (fromTz === 'UTC' && !cityTimezones[from] && !fromTzOverride) {
-    console.warn(`City not found in timezone database: ${from}`);
-    return 0;
+  if (fromTz === 'UTC' && !LEGACY_CITY_TIMEZONES[from] && !fromTzOverride) {
+    // console.warn(`City not found in timezone database: ${from}`);
+    // Suppress warning now that we have universal lookup, or change check
+    // Actually, getCityTimezone already used the library. If it returned UTC, it really failed.
   }
-  if (toTz === 'UTC' && !cityTimezones[to] && !toTzOverride) {
-    console.warn(`City not found in timezone database: ${to}`);
-    return 0;
+  if (toTz === 'UTC' && !LEGACY_CITY_TIMEZONES[to] && !toTzOverride) {
+    // console.warn(`City not found in timezone database: ${to}`);
   }
 
   const dateInFrom = moment.tz(date, fromTz);
@@ -944,6 +1112,42 @@ export function generateJetLagPlan(
   // Determine "effective" origin timezone for calculation
   // default: local timezone of departure city
   let effectiveFromTz = trip.fromTz || getCityTimezone(trip.from);
+
+  // NEW: Check for intra-trip segment conflicts (Missed Connections)
+  // If found, we create a conflict card to pause notifications, 
+  // BUT we do NOT return early so the user can still see the rest of the plan.
+  let conflictCard: Card | null = null;
+
+  if (trip.segments && trip.segments.length > 1) {
+    for (let i = 0; i < trip.segments.length - 1; i++) {
+      const seg = trip.segments[i];
+      const nextSeg = trip.segments[i + 1];
+
+      // Calculate Arrival of Segment i
+      const arrival = moment.tz(`${seg.arriveDate} ${seg.arriveTime}`, 'YYYY-MM-DD HH:mm', seg.toTz || getCityTimezone(seg.to));
+
+      // Calculate Departure of Segment i+1
+      const nextDepart = moment.tz(`${nextSeg.departDate} ${nextSeg.departTime}`, 'YYYY-MM-DD HH:mm', nextSeg.fromTz || getCityTimezone(nextSeg.from));
+
+      if (arrival.isAfter(nextDepart)) {
+        conflictCard = {
+          id: 'conflict-warning',
+          title: 'Missed Connection Detected',
+          time: 'Plan Paused',
+          icon: 'alert-triangle',
+          color: '#FEF2F2',
+          why: `Flight ${i + 1} (${seg.from} > ${seg.to}) arrives after previous flight lands. Previous flight lands at ${arrival.format('h:mm A')} on ${arrival.format('MM/DD/YYYY')}, but next flight leaves at ${nextDepart.format('h:mm A')} on ${nextDepart.format('MM/DD/YYYY')}.`,
+          how: 'Tap to Edit Trip',
+          dateTime: arrival.toISOString(), // Use arrival time of first leg
+          isInfo: false,
+          isDailyRoutine: false
+        };
+        // We found a conflict, no need to check further segments
+        break;
+      }
+    }
+  }
+
   let circadianOriginCity = trip.from;
   let circadianOriginTz = trip.fromTz; // Preserve explicit origin TZ if available
 
@@ -1194,14 +1398,11 @@ export function generateJetLagPlan(
         cards: prepareCards,
       },
       travel: {
-        name: 'Travel Day',
-        dateRange: formatDateRange(
-          trip.departDate,
-          lastSegment && lastSegment.arriveDate ? lastSegment.arriveDate : trip.departDate
-        ),
+        name: 'Travel',
+        dateRange: formatDateRange(trip.departDate, trip.arriveDate),
         startDate: trip.departDate,
-        endDate: lastSegment && lastSegment.arriveDate ? lastSegment.arriveDate : trip.departDate,
-        cards: travelCards,
+        endDate: trip.arriveDate,
+        cards: conflictCard ? [conflictCard, ...travelCards] : travelCards,
       },
       adjust: {
         name: 'Adjust',
@@ -1244,12 +1445,9 @@ function calculatePrepSleepShift(hoursDiff: number, prepDays: number): number {
  */
 function isSunUp(timeMoment: moment.Moment, city: string): boolean {
   // Try direct lookup, then try to map code to city, then try lookup again
+  // Try direct lookup, then try to map code to city, then try lookup again
   const cleanCity = city.trim();
-  const cityKey = cityCoordinates[cleanCity]
-    ? cleanCity
-    : (airportMappings[cleanCity] && cityCoordinates[airportMappings[cleanCity]] ? airportMappings[cleanCity] : null);
-
-  const coords = cityKey ? cityCoordinates[cityKey] : null;
+  const coords = getCityCoordinates(cleanCity);
 
   if (!coords) {
     // Fallback: Default to "daylight" between 7 AM and 7 PM if no coords
@@ -2905,16 +3103,15 @@ export function generateAdjustCards(
       }
 
       if (userSettings.useMagnesium) {
-        // For late arrival, maybe take it with the "Settling In" phase or 1h before bed
         const magTime = targetBedtime.clone().subtract(1, 'hour');
         cards.push({
           id: 'adjust-arrival-magnesium',
           title: 'Magnesium',
-          time: 'Before Bed (optional)',
+          time: '1 hour before bed (optional)',
           icon: '💊',
           color: '#10b981',
-          why: 'Some travelers find magnesium helpful for relaxation.',
-          how: 'If you choose to use it, you can take magnesium glycinate before bed.',
+          why: 'Many travelers find magnesium helpful for winding down.',
+          how: 'If you\'d like to try it, consider taking magnesium glycinate about an hour before bed.',
           dateTime: magTime.toISOString(),
         });
       }
@@ -2990,18 +3187,15 @@ export function generateAdjustCards(
       }
 
       if (userSettings.useMagnesium) {
-        // Dinner time was defined above as `dinnerTime` (line 2514 in prev view, but scope might be issue)
-        // Actually `dinnerTime` is defined in this block (Line 2461/2514 depending on revert).
-        // Let's assume Dinner is approx 6 PM or use bedtime - 3h.
-        const magTime = bedtimeMoment.clone().subtract(3, 'hours');
+        const magTime = bedtimeMoment.clone().subtract(1, 'hour');
         cards.push({
           id: 'adjust-arrival-magnesium',
           title: 'Magnesium',
-          time: 'Evening (optional)',
+          time: '1 hour before bed (optional)',
           icon: '💊',
           color: '#10b981',
-          why: 'Some travelers find magnesium helpful for relaxation.',
-          how: 'If you choose to use it, many people take magnesium glycinate with dinner.',
+          why: 'Many travelers find magnesium helpful for winding down.',
+          how: 'If you\'d like to try it, consider taking magnesium glycinate about an hour before bed.',
           dateTime: magTime.toISOString(),
         });
       }
@@ -3192,6 +3386,22 @@ export function generateAdjustCards(
         why: 'Helps signal sleep time to your body clock.',
         how: 'Take a small dose if you choose.',
         dateTime: melTime.toISOString(),
+        isDailyRoutine: false
+      });
+    }
+
+    // Magnesium (Optional)
+    if (userSettings.useMagnesium) {
+      const magTime = targetBedtime.clone().subtract(60, 'minutes'); // 1 hour before bed
+      cards.push({
+        id: `adjust-magnesium-${currentDayStr}`,
+        title: 'Magnesium (Optional)',
+        time: '1 hour before bed',
+        icon: '💊',
+        color: '#fca5a5',
+        why: 'Many travelers find magnesium helpful for winding down.',
+        how: 'If you\'d like to try it, consider taking magnesium glycinate about an hour before bed.',
+        dateTime: magTime.toISOString(),
         isDailyRoutine: false
       });
     }

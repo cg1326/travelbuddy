@@ -19,11 +19,11 @@ import moment from 'moment-timezone';
 import Icon from 'react-native-vector-icons/Feather';
 
 
-import { cityTimezones, airportMappings, getCityTimezone } from '../utils/jetLagAlgorithm';
+import { LEGACY_CITY_TIMEZONES, airportMappings, getCityTimezone, findCityUniversal, findCityByIATA } from '../utils/jetLagAlgorithm';
 import { usePlans } from '../context/PlanContext';
 
-// Valid cities from jetLagAlgorithm.ts
-const VALID_CITIES = Object.keys(cityTimezones);
+// Valid cities from jetLagAlgorithm.ts (Legacy list for autocomplete/fuzzy match)
+const VALID_CITIES = Object.keys(LEGACY_CITY_TIMEZONES);
 
 // Fuzzy match city name
 function findClosestCity(input: string): string | null {
@@ -32,28 +32,56 @@ function findClosestCity(input: string): string | null {
   const normalized = input.trim().toLowerCase();
   const upperInput = input.trim().toUpperCase();
 
-  // 1. Check Airport Codes FIRST
+  // 1. Check Airport Codes match (Legacy IATA)
+  // Check if IATA maps to something in our list
   if (airportMappings[upperInput]) {
+    // Return the city name if valid
     return airportMappings[upperInput];
   }
 
-  // 2. Exact match
+  // 2. Check Universal IATA (New)
+  // If input is 3 chars, try looking it up in global DB
+  if (input.trim().length === 3) {
+    const universalIATA = findCityByIATA(input.trim());
+    if (universalIATA) {
+      // Must verify the returned city actually exists in our Timezone DB
+      const validatedCity = findCityUniversal(universalIATA);
+      if (validatedCity) {
+        return validatedCity.city;
+      } else {
+        // IATA code recognized, but city has no timezone data
+        // Return null to show error rather than falling through to fuzzy matching
+        // (prevents "BDA" -> "Bermuda" -> null -> fuzzy match "Lima")
+        return null;
+      }
+    }
+  }
+
+  // 3. Exact match in Legacy List
   const exactMatch = VALID_CITIES.find(city => city.toLowerCase() === normalized);
   if (exactMatch) return exactMatch;
 
-  // 3. Starts with match
+  // 3. Exact unique match in Library (Universal Support)
+  // If not in legacy, check the library!
+  const universal = findCityUniversal(input.trim());
+  if (universal) {
+    // Return the city name found in DB to correct capitalization
+    return universal.city;
+  }
+
+  // 4. Starts with match (Legacy)
   const startsWithMatch = VALID_CITIES.find(city =>
     city.toLowerCase().startsWith(normalized)
   );
   if (startsWithMatch) return startsWithMatch;
 
-  // 4. Contains match
+  // 5. Contains match (Legacy)
   const containsMatch = VALID_CITIES.find(city =>
     city.toLowerCase().includes(normalized)
   );
   if (containsMatch) return containsMatch;
 
-  // 5. Levenshtein distance for typos
+  // 6. Levenshtein distance for typos (Legacy - only for core cities to avoid massive search)
   const distances = VALID_CITIES.map(city => ({
     city,
     distance: levenshteinDistance(normalized, city.toLowerCase())
@@ -367,54 +395,73 @@ export default function AddTrips({ route, navigation }: any) {
   const [showFlightSelection, setShowFlightSelection] = useState(false);
 
   // Animation for Error Overlay
-  const slideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
-  const bgOpacity = React.useRef(new Animated.Value(0)).current;
+  const errorOpacity = React.useRef(new Animated.Value(0)).current;
+  const errorSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
   const [displayedError, setDisplayedError] = useState<string | null>(null);
 
   useEffect(() => {
     if (flightErrorMsg) {
       setDisplayedError(flightErrorMsg);
       Animated.parallel([
-        Animated.timing(bgOpacity, {
+        Animated.timing(errorOpacity, {
           toValue: 1,
-          duration: 300,
+          duration: 250,
           useNativeDriver: true,
         }),
-        Animated.timing(slideAnim, {
+        Animated.timing(errorSlideAnim, {
           toValue: 0,
-          duration: 300,
+          duration: 250,
           useNativeDriver: true,
         })
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(bgOpacity, {
+        Animated.timing(errorOpacity, {
           toValue: 0,
-          duration: 300,
+          duration: 200,
           useNativeDriver: true,
         }),
-        Animated.timing(slideAnim, {
+        Animated.timing(errorSlideAnim, {
           toValue: Dimensions.get('window').height,
-          duration: 300,
+          duration: 250,
           useNativeDriver: true,
         })
       ]).start(() => setDisplayedError(null));
     }
   }, [flightErrorMsg]);
 
-  // Debug: Monitor flight selection modal state
-  useEffect(() => {
-    console.log('DEBUG: showFlightSelection changed to:', showFlightSelection);
-    console.log('DEBUG: flightOptions length:', flightOptions.length);
-  }, [showFlightSelection, flightOptions]);
 
   // Helper: Map IATA code to user's preferred city name
-  const mapIATAToCity = (iataCode: string): string => {
-    // Check if IATA code maps to a city in airportMappings
+  const mapIATAToCity = (iataCode: string, fullAirportName?: string): string => {
+    // 1. Check Legacy Mapping (includes vacation destinations)
     const cityName = airportMappings[iataCode];
-    if (cityName && VALID_CITIES.includes(cityName)) {
+    if (cityName) {
       return cityName;
     }
+
+    // 2. Universal IATA (Fallback)
+    const universalCity = findCityByIATA(iataCode);
+    if (universalCity) {
+      const validated = findCityUniversal(universalCity);
+      if (validated) return validated.city;
+    }
+
+    // 3. Smart Parse: Extract (City) from "City Name (IATA)"
+    // e.g. "San Sebastian (EAS)" -> "San Sebastian"
+    if (fullAirportName) {
+      // Regex to capture text before the last parenthesized code
+      // Match "City (CODE)" -> Group 1 is "City"
+      const match = fullAirportName.match(/^(.*)\s+\([A-Z]{3}\)$/);
+      if (match && match[1]) {
+        const potentialCity = match[1].trim();
+        // Verify this city exists in Library
+        const universal = findCityUniversal(potentialCity);
+        if (universal) {
+          return potentialCity;
+        }
+      }
+    }
+
     // Fallback to IATA code if no mapping found
     return iataCode;
   };
@@ -423,8 +470,8 @@ export default function AddTrips({ route, navigation }: any) {
   const handleImportFlightWithData = (flightData: any) => {
     try {
       // Autofill the form with mapped city names
-      setFrom(mapIATAToCity(flightData.departure.iata));
-      setTo(mapIATAToCity(flightData.arrival.iata));
+      setFrom(mapIATAToCity(flightData.departure.iata, flightData.departure.airport));
+      setTo(mapIATAToCity(flightData.arrival.iata, flightData.arrival.airport));
 
       // Helper to parse ISO time strings
       // IMPORTANT: The API returns times in LOCAL airport time (e.g., "2026-02-18T00:30:00" = 12:30 AM Abu Dhabi time)
@@ -501,7 +548,7 @@ export default function AddTrips({ route, navigation }: any) {
       if (result.multiple && result.flights && result.flights.length > 1) {
         console.log('DEBUG: Setting flight selection modal to visible');
         setIsImporting(false);
-        setShowImportModal(false); // Close import modal first
+        setShowImportModal(false);
         setFlightOptions(result.flights);
         setShowFlightSelection(true);
         return;
@@ -510,16 +557,17 @@ export default function AddTrips({ route, navigation }: any) {
       // Single flight or already selected - proceed with import
       const flightData = result.multiple ? result.flights[0] : result;
 
-      // Debugging Check: Did we receive times?
+      // Store error message if data is incomplete (will show AFTER form populates)
+      let pendingError: string | null = null;
       if (!flightData.departure.time && !flightData.arrival.time) {
-        setFlightErrorMsg("The Airline API found the flight path but returned NO TIME data. This usually means the flight is too far in the future or the airline hasn't published the schedule yet.");
+        pendingError = "The Airline API found the flight path but returned NO TIME data. This usually means the flight is too far in the future or the airline hasn't published the schedule yet.";
       } else if (!flightData.departure.time) {
-        setFlightErrorMsg("We found the flight, but the Departure Time is missing from the airline data.");
+        pendingError = "We found the flight, but the Departure Time is missing from the airline data.";
       }
 
       // Autofill the form with mapped city names
-      setFrom(mapIATAToCity(flightData.departure.iata));
-      setTo(mapIATAToCity(flightData.arrival.iata));
+      setFrom(mapIATAToCity(flightData.departure.iata, flightData.departure.airport));
+      setTo(mapIATAToCity(flightData.arrival.iata, flightData.arrival.airport));
 
       // Handle Date/Time
       // The API returns ISO strings (e.g. 2024-05-20T10:00:00+00:00)
@@ -563,13 +611,18 @@ export default function AddTrips({ route, navigation }: any) {
           dep.time,
           arr.date,
           arr.time,
-          mapIATAToCity(flightData.departure.iata),
-          mapIATAToCity(flightData.arrival.iata)
+          mapIATAToCity(flightData.departure.iata, flightData.departure.airport),
+          mapIATAToCity(flightData.arrival.iata, flightData.arrival.airport)
         );
       }
 
       setShowImportModal(false);
-      // Success popup removed per user request
+      setIsImporting(false);
+
+      // Show error AFTER modal closes and form populates
+      if (pendingError) {
+        setTimeout(() => setFlightErrorMsg(pendingError), 300);
+      }
 
     } catch (err: any) {
       setIsImporting(false);
@@ -614,15 +667,11 @@ export default function AddTrips({ route, navigation }: any) {
       if (!fromMatch) {
         setFromError(`"${from}" not recognized. Try: ${VALID_CITIES.slice(0, 3).join(', ')}...`);
       } else if (fromMatch !== from) {
-        // Check if it's an airport code (JFK -> New York)
-        // If so, auto-resolve it immediately instead of showing error
-        const upper = from.trim().toUpperCase();
-        if (airportMappings[upper] === fromMatch) {
-          setFrom(fromMatch);
-          setFromError('');
-        } else {
-          setFromError(`Did you mean "${fromMatch}"?`);
-        }
+        // Auto-fill the corrected city name (handles IATA codes, case differences, etc.)
+        setFrom(fromMatch);
+        setFromError('');
+      } else {
+        setFromError('');
       }
     }
 
@@ -631,14 +680,11 @@ export default function AddTrips({ route, navigation }: any) {
       if (!toMatch) {
         setToError(`"${to}" not recognized. Try: ${VALID_CITIES.slice(0, 3).join(', ')}...`);
       } else if (toMatch !== to) {
-        // Check if it's an airport code (LHR -> London)
-        const upper = to.trim().toUpperCase();
-        if (airportMappings[upper] === toMatch) {
-          setTo(toMatch);
-          setToError('');
-        } else {
-          setToError(`Did you mean "${toMatch}"?`);
-        }
+        // Auto-fill the corrected city name (handles IATA codes, case differences, etc.)
+        setTo(toMatch);
+        setToError('');
+      } else {
+        setToError('');
       }
     }
   };
@@ -777,8 +823,8 @@ export default function AddTrips({ route, navigation }: any) {
     if (validation.suggestions.length > 0 && validation.valid) {
       const suggestionMessages = validation.suggestions.map(s =>
         s.field === 'from'
-          ? `Departure: "${from}" → "${s.suggested}"`
-          : `Arrival: "${to}" → "${s.suggested}"`
+          ? `Departure: "${from}" > "${s.suggested}"`
+          : `Arrival: "${to}" > "${s.suggested}"`
       ).join('\n');
 
       Alert.alert(
@@ -961,7 +1007,7 @@ export default function AddTrips({ route, navigation }: any) {
       const layoverMinutes = thisDeparture.diff(prevArrival, 'minutes');
 
       if (layoverMinutes < 0) {
-        setDateTimeError(`This flight departs before previous flight lands (${previousSegment.arriveTime} on ${previousSegment.arriveDate})`);
+        setDateTimeError(`This flight departs before previous flight lands (${prevArrival.format('h:mm A')} on ${prevArrival.format('MM/DD/YYYY')})`);
         validation.errors.push('Departure before previous arrival');
       } else if (layoverMinutes < 30) {
         setDateTimeError(`Only ${layoverMinutes} min layover. Minimum 30 minutes recommended.`);
@@ -973,8 +1019,8 @@ export default function AddTrips({ route, navigation }: any) {
     if (validation.suggestions.length > 0 && validation.valid) {
       const suggestionMessages = validation.suggestions.map(s =>
         s.field === 'from'
-          ? `Departure: "${from}" → "${s.suggested}"`
-          : `Arrival: "${to}" → "${s.suggested}"`
+          ? `Departure: "${from}" > "${s.suggested}"`
+          : `Arrival: "${to}" > "${s.suggested}"`
       ).join('\n');
 
       Alert.alert(
@@ -1171,7 +1217,7 @@ export default function AddTrips({ route, navigation }: any) {
 
       if (nextDeparture.isSameOrBefore(currentArrival)) {
         setSegmentSequenceError(
-          `Flight ${i + 2} (${nextSeg.from} → ${nextSeg.to}) departs before previous flight arrives. Previous flight lands at ${currentSeg.arriveTime} on ${currentSeg.arriveDate}, but next flight leaves at ${nextSeg.departTime} on ${nextSeg.departDate}.`
+          `Flight ${i + 2} (${nextSeg.from} > ${nextSeg.to}) departs before previous flight arrives. Previous flight lands at ${currentArrival.format('h:mm A')} on ${currentArrival.format('MM/DD/YYYY')}, but next flight leaves at ${nextDeparture.format('h:mm A')} on ${nextDeparture.format('MM/DD/YYYY')}.`
         );
         return;
       }
@@ -1295,7 +1341,7 @@ export default function AddTrips({ route, navigation }: any) {
       return;
     }
     navigation.navigate('ReviewPlan', {
-      planName,
+      planName: planName || (existingPlan ? existingPlan.name : undefined),
       trips: completedTrips,
       mode: isEditMode ? 'edit' : 'create',
       existingPlanId: isEditMode && existingPlan ? existingPlan.id : undefined
@@ -1388,7 +1434,10 @@ export default function AddTrips({ route, navigation }: any) {
                   >
                     <Icon name="edit" size={20} color="#00DDD9" />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => deleteTrip(trip.id)}>
+                  <TouchableOpacity
+                    style={{ padding: 4 }}
+                    onPress={() => deleteTrip(trip.id)}
+                  >
                     <Icon name="x" size={20} color="#EF4444" />
                   </TouchableOpacity>
                 </View>
@@ -1416,14 +1465,17 @@ export default function AddTrips({ route, navigation }: any) {
                       Arrive: {moment(seg.arriveDate).format('MM/DD/YYYY')} {moment(seg.arriveTime, 'HH:mm').format('h:mm A')}
                     </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
                     <TouchableOpacity
                       style={{ padding: 4 }}
                       onPress={() => editSegment(index)}
                     >
                       <Icon name="edit" size={20} color="#00DDD9" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => removeSegment(index)}>
+                    <TouchableOpacity
+                      style={{ padding: 4 }}
+                      onPress={() => removeSegment(index)}
+                    >
                       <Icon name="x" size={20} color="#EF4444" />
                     </TouchableOpacity>
                   </View>
@@ -1906,18 +1958,18 @@ export default function AddTrips({ route, navigation }: any) {
             )}
           </View>
 
-          {/* Error Overlay (Inside Import Modal) - Animated */}
-          {!!displayedError && (
+          {/* Error Overlay INSIDE Import Modal - For immediate errors (invalid flight) */}
+          {!!displayedError && showImportModal && (
             <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]} pointerEvents="box-none">
-              {/* Background Backdrop - Fades */}
+              {/* Background - Fades in/out */}
               <Animated.View style={[StyleSheet.absoluteFill, {
                 backgroundColor: 'rgba(0,0,0,0.5)',
-                opacity: bgOpacity
+                opacity: errorOpacity
               }]} />
 
-              {/* Slider Content - Slides */}
+              {/* Error Modal - Slides up/down */}
               <Animated.View style={[styles.modalOverlay, {
-                transform: [{ translateY: slideAnim }]
+                transform: [{ translateY: errorSlideAnim }]
               }]}>
                 <View style={styles.modalContent}>
                   <Text style={[styles.modalTitle, { color: '#EF4444' }]}>Error</Text>
@@ -1932,7 +1984,6 @@ export default function AddTrips({ route, navigation }: any) {
               </Animated.View>
             </View>
           )}
-
 
         </KeyboardAvoidingView>
       </Modal>
@@ -2012,6 +2063,32 @@ export default function AddTrips({ route, navigation }: any) {
           </View>
         </View>
       </Modal>
+      {/* Error Overlay OUTSIDE Modal - For delayed errors (missing data after successful import) */}
+      {!!displayedError && !showImportModal && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]} pointerEvents="box-none">
+          {/* Background - Fades in/out */}
+          <Animated.View style={[StyleSheet.absoluteFill, {
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            opacity: errorOpacity
+          }]} />
+
+          {/* Error Modal - Slides up/down */}
+          <Animated.View style={[styles.modalOverlay, {
+            transform: [{ translateY: errorSlideAnim }]
+          }]}>
+            <View style={styles.modalContent}>
+              <Text style={[styles.modalTitle, { color: '#EF4444' }]}>Error</Text>
+              <Text style={[styles.modalSubtitle, { marginBottom: 24 }]}>{displayedError}</Text>
+              <TouchableOpacity
+                style={[styles.addDirectButton, { width: '100%', marginTop: 0, backgroundColor: '#EF4444' }]}
+                onPress={() => setFlightErrorMsg(null)}
+              >
+                <Text style={styles.addDirectButtonText}>OK</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </View>
+      )}
     </View>
   );
 }

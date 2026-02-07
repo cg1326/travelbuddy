@@ -171,6 +171,15 @@ export default function TripDetail({ route, navigation }: any) {
         arriveTime: segArrive.format('HH:mm'),
       };
 
+      // Create the updated trip object
+      const updatedTrip = {
+        ...tripToUpdate,
+        segments: updatedSegments,
+      };
+
+      // Update the trips array with the modified trip
+      updatedTrips[currentTripIndex] = updatedTrip;
+
       // Check for missed connection with next segment
       if (segmentIndex < updatedSegments.length - 1) {
         const nextSegment = updatedSegments[segmentIndex + 1];
@@ -179,10 +188,7 @@ export default function TripDetail({ route, navigation }: any) {
         if (segArrive.isAfter(nextDepartTime)) {
           // Show conflict modal for missed connection
           setConflictMessage(`This delay causes you to miss your connecting flight from ${segment.to} to ${nextSegment.to}.`);
-          setPendingUpdateTrips([{
-            ...tripToUpdate,
-            segments: updatedSegments,
-          }]);
+          setPendingUpdateTrips(updatedTrips); // FIX: successfuly passing full trips array
           setShowConflictModal(true);
           return;
         }
@@ -1065,7 +1071,7 @@ export default function TripDetail({ route, navigation }: any) {
           <Icon name="chevron-left" size={28} color="#1E293B" />
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <Text style={styles.planName}>{plan.name}</Text>
+          <Text style={styles.planName}>{plan.name || (trip ? `Trip to ${trip.to}` : 'My Trip')}</Text>
           <Text style={styles.subtitle}>{moment(trip.departDate).format('MMM D, YYYY')} Departure</Text>
         </View>
 
@@ -1290,12 +1296,10 @@ export default function TripDetail({ route, navigation }: any) {
                 ]}
                 onPress={() => {
                   if (card.id === 'conflict-warning') {
-                    // Navigate to Edit Trip screen
-                    navigation.push('AddTrips', {
+                    navigation.navigate('AddTrips', {
+                      mode: 'edit',
                       planName: plan.name,
-                      mode: 'create',
-                      existingPlanId: plan.id,
-                      insertMode: true
+                      existingPlanId: plan.id
                     });
                     return;
                   }
@@ -1365,8 +1369,8 @@ export default function TripDetail({ route, navigation }: any) {
                           { color: theme.titleColor } as TextStyle,
                           card.isInfo && { marginBottom: 0 }  // Remove bottom margin for info cards
                         ]}
-                        numberOfLines={card.title.includes('→') ? 1 : 2}
-                        adjustsFontSizeToFit={card.title.includes('→')}
+                        numberOfLines={card.title.includes('>') ? 1 : 2}
+                        adjustsFontSizeToFit={card.title.includes('>') || card.title.includes('→')}
                         minimumFontScale={0.95}
                       >
                         {activePhase === 'prepare' ? card.title.split(' - ')[0] : card.title}

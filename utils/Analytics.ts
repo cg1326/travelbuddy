@@ -1,10 +1,41 @@
 import { getAnalytics, logEvent, setUserProperty } from '@react-native-firebase/analytics';
+import DeviceInfo from 'react-native-device-info';
 
 /**
  * Analytics Service
  * Wraps Firebase Analytics to provide a consistent interface for tracking.
  */
 export const Analytics = {
+    /**
+     * IDENTIFY SESSION: Determine if this is TestFlight, Simulator, or Production.
+     * Call this once on app startup.
+     */
+    identifySession: async () => {
+        try {
+            const isEmulator = await DeviceInfo.isEmulator();
+            // isTestFlight() returns a Promise<boolean> on iOS, and usually false on Android
+            let isTestFlight = false;
+            try {
+                // @ts-ignore
+                isTestFlight = await DeviceInfo.isTestFlight();
+            } catch (err) {
+                // Fallback for Android or if check fails
+                isTestFlight = false;
+            }
+
+            let source = 'app_store';
+            if (isEmulator) {
+                source = 'simulator';
+            } else if (isTestFlight) {
+                source = 'testflight';
+            }
+
+            console.log(`[Analytics] Identifying Session Source: ${source}`);
+            await setUserProperty(getAnalytics(), 'install_source', source);
+        } catch (e) {
+            console.warn('[Analytics] Error Identifying Session:', e);
+        }
+    },
     /**
      * Log a standard screen view.
      * Note: We mostly use automatic tracking in App.tsx, but this is available for modals.

@@ -35,6 +35,14 @@ export default function QuickDelayModal({
     const isMultiLeg = segments && segments.length > 1;
     const showSegmentSelection = isMultiLeg && selectedSegmentIndex === null;
 
+    // Reset selection when modal closes
+    React.useEffect(() => {
+        if (!visible) {
+            setSelectedSegmentIndex(null);
+            setShowPicker(false);
+        }
+    }, [visible]);
+
     const handleQuickOption = (minutes: number) => {
         onApplyDelay(minutes, selectedSegmentIndex ?? undefined);
         onClose();
@@ -98,13 +106,20 @@ export default function QuickDelayModal({
             transparent
             visible={visible}
             animationType="fade"
-            onRequestClose={onClose}
+            onRequestClose={handleClose}
         >
             <View style={styles.overlay}>
                 <View style={styles.container}>
                     <View style={styles.header}>
-                        <Text style={styles.title}>Flight Delayed?</Text>
-                        <TouchableOpacity onPress={onClose}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            {selectedSegmentIndex !== null && isMultiLeg && (
+                                <TouchableOpacity onPress={() => setSelectedSegmentIndex(null)} style={{ marginRight: 10 }}>
+                                    <Icon name="arrow-left" size={24} color="#1E293B" />
+                                </TouchableOpacity>
+                            )}
+                            <Text style={styles.title}>Flight Delayed?</Text>
+                        </View>
+                        <TouchableOpacity onPress={handleClose}>
                             <Icon name="x" size={24} color="#64748B" />
                         </TouchableOpacity>
                     </View>
@@ -113,7 +128,7 @@ export default function QuickDelayModal({
                     {showSegmentSelection ? (
                         <>
                             <Text style={styles.subtitle}>
-                                Which flight is delayed?
+                                Pick a flight to adjust:
                             </Text>
 
                             <ScrollView style={styles.segmentList} showsVerticalScrollIndicator={false}>
@@ -128,7 +143,7 @@ export default function QuickDelayModal({
                                         </View>
                                         <View style={styles.segmentInfo}>
                                             <Text style={styles.segmentRoute}>
-                                                {segment.from} → {segment.to}
+                                                {segment.from} {'>'} {segment.to}
                                             </Text>
                                             <Text style={styles.segmentTime}>
                                                 Departs: {moment(`${segment.departDate} ${segment.departTime}`, 'YYYY-MM-DD HH:mm').format('MMM D, h:mm A')}
@@ -143,7 +158,7 @@ export default function QuickDelayModal({
                         <>
                             <Text style={styles.subtitle}>
                                 {isMultiLeg
-                                    ? `Adjust arrival time for ${segments![selectedSegmentIndex!].from} → ${segments![selectedSegmentIndex!].to}`
+                                    ? `Adjust arrival time for ${segments![selectedSegmentIndex!].from} > ${segments![selectedSegmentIndex!].to}`
                                     : 'Quickly adjust your arrival time. This will shift your entire schedule.'}
                             </Text>
 

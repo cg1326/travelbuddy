@@ -109,7 +109,7 @@ function PlansScreen({ navigation }: any) {
                         <View style={styles.planCardContent}>
                           <View style={styles.planCardLeft}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              <Text style={styles.planCardTitle}>{plan.name}</Text>
+                              <Text style={styles.planCardTitle}>{plan.name || (plan.trips && plan.trips.length > 0 ? `Trip to ${plan.trips[0].to}` : 'My Trip')}</Text>
                               {isActive && (
                                 <View style={styles.activeBadge}>
                                   <Text style={styles.activeBadgeText}>Active</Text>
@@ -188,7 +188,7 @@ function PlansScreen({ navigation }: any) {
                         >
                           <View style={styles.planCardContent}>
                             <View style={styles.planCardLeft}>
-                              <Text style={styles.planCardTitle}>{plan.name}</Text>
+                              <Text style={styles.planCardTitle}>{plan.name || (plan.trips && plan.trips.length > 0 ? `Trip to ${plan.trips[0].to}` : 'My Trip')}</Text>
                               <Text style={styles.planCardSubtitle}>
                                 {plan.trips?.length || 0} trip{(plan.trips?.length || 0) !== 1 ? 's' : ''}
                               </Text>
@@ -341,6 +341,7 @@ function MainApp() {
   // <--- NEW: CHECK INTRO STATUS
   useEffect(() => {
     checkIntroStatus();
+    Analytics.identifySession();
   }, []);
 
   const checkIntroStatus = async () => {

@@ -2472,6 +2472,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - SocketRocket
     - Yoga
+  - RNDeviceInfo (15.0.1):
+    - React-Core
   - RNFBAnalytics (23.8.4):
     - boost
     - DoubleConversion
@@ -2761,6 +2763,7 @@ DEPENDENCIES:
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - "RNCPushNotificationIOS (from `../node_modules/@react-native-community/push-notification-ios`)"
   - "RNDateTimePicker (from `../node_modules/@react-native-community/datetimepicker`)"
+  - RNDeviceInfo (from `../node_modules/react-native-device-info`)
   - "RNFBAnalytics (from `../node_modules/@react-native-firebase/analytics`)"
   - "RNFBApp (from `../node_modules/@react-native-firebase/app`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
@@ -2934,6 +2937,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-community/push-notification-ios"
   RNDateTimePicker:
     :path: "../node_modules/@react-native-community/datetimepicker"
+  RNDeviceInfo:
+    :path: "../node_modules/react-native-device-info"
   RNFBAnalytics:
     :path: "../node_modules/@react-native-firebase/analytics"
   RNFBApp:
@@ -3035,6 +3040,7 @@ SPEC CHECKSUMS:
   RNCAsyncStorage: 302f2fac014fd450046c120567ca364632da682b
   RNCPushNotificationIOS: 64218f3c776c03d7408284a819b2abfda1834bc8
   RNDateTimePicker: 46e70e8695fe52cb5808cf1ef6d74d5ce496accc
+  RNDeviceInfo: 53f9c84e28e854a308d3e548e25ef120b4615531
   RNFBAnalytics: a5fbc067de2a268ed915715d68746af04258ccf0
   RNFBApp: a570a62376b27ed87f9ab137a2b7b9d298435adb
   RNGestureHandler: 4f7cc97a71d4fe0fcba38c94acdd969f5f17c91c
