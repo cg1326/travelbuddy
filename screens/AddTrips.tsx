@@ -23,11 +23,14 @@ import { LEGACY_CITY_TIMEZONES, airportMappings, getCityTimezone, findCityUniver
 import { usePlans } from '../context/PlanContext';
 
 // Valid cities from jetLagAlgorithm.ts (Legacy list for autocomplete/fuzzy match)
-const VALID_CITIES = Object.keys(LEGACY_CITY_TIMEZONES);
+// const VALID_CITIES = Object.keys(LEGACY_CITY_TIMEZONES);
 
 // Fuzzy match city name
 function findClosestCity(input: string): string | null {
   if (!input || input.trim().length < 2) return null;
+
+  // Lazily get cities to avoid module initialization race conditions
+  const VALID_CITIES = LEGACY_CITY_TIMEZONES ? Object.keys(LEGACY_CITY_TIMEZONES) : [];
 
   const normalized = input.trim().toLowerCase();
   const upperInput = input.trim().toUpperCase();
