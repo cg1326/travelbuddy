@@ -665,10 +665,13 @@ export default function AddTrips({ route, navigation }: any) {
 
   // Helper function to validate cities
   const validateCities = () => {
+    // Lazily get cities
+    const validCities = LEGACY_CITY_TIMEZONES ? Object.keys(LEGACY_CITY_TIMEZONES) : [];
+
     if (from.trim()) {
       const fromMatch = findClosestCity(from);
       if (!fromMatch) {
-        setFromError(`"${from}" not recognized. Try: ${VALID_CITIES.slice(0, 3).join(', ')}...`);
+        setFromError(`"${from}" not recognized. Try: ${validCities.slice(0, 3).join(', ')}...`);
       } else if (fromMatch !== from) {
         // Auto-fill the corrected city name (handles IATA codes, case differences, etc.)
         setFrom(fromMatch);
@@ -681,7 +684,7 @@ export default function AddTrips({ route, navigation }: any) {
     if (to.trim()) {
       const toMatch = findClosestCity(to);
       if (!toMatch) {
-        setToError(`"${to}" not recognized. Try: ${VALID_CITIES.slice(0, 3).join(', ')}...`);
+        setToError(`"${to}" not recognized. Try: ${validCities.slice(0, 3).join(', ')}...`);
       } else if (toMatch !== to) {
         // Auto-fill the corrected city name (handles IATA codes, case differences, etc.)
         setTo(toMatch);
