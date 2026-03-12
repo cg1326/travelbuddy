@@ -1,10 +1,11 @@
 import React, { useEffect, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, SafeAreaView, StatusBar, ImageBackground } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, SafeAreaView, StatusBar, ImageBackground, Animated, Dimensions } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { PlanProvider, usePlans } from './context/PlanContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import AddPlanName from './screens/AddPlanName';
 import AddTrips from './screens/AddTrips';
 import ReviewPlan from './screens/ReviewPlan';
@@ -12,12 +13,15 @@ import TodayView from './screens/TodayView';
 import ProfileSettings from './screens/ProfileSettings';
 import TripDetail from './screens/TripDetails';
 import IntroCards from './screens/IntroCards'; // <--- NEW IMPORT
+import ForceUpdateScreen from './screens/ForceUpdateScreen'; // <--- NEW IMPORT
 import AsyncStorage from '@react-native-async-storage/async-storage'; // <--- NEW IMPORT
+import { isUpdateRequired } from './utils/VersionCheck'; // <--- NEW IMPORT
 import moment from 'moment';
 import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
 import Icon from 'react-native-vector-icons/Feather';
 import { startPersistentNotificationUpdater } from './utils/notificationScheduler';
 import { Analytics } from './utils/Analytics';
+import DeviceInfo from 'react-native-device-info';
 
 
 const Tab = createBottomTabNavigator();
@@ -31,6 +35,7 @@ function TodayScreen({ navigation }: any) {
 
 function PlansScreen({ navigation }: any) {
   const { plans, isLoading, deletePlan, getActivePlan } = usePlans();
+  const { colors } = useTheme();
   const activePlan = getActivePlan();
   const [showPastPlans, setShowPastPlans] = React.useState(false);
 
@@ -67,15 +72,15 @@ function PlansScreen({ navigation }: any) {
 
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Loading...</Text>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.bg }]}>
+        <Text style={[styles.loadingText, { color: colors.subtext }]}>Loading...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.screen}>
-      <Text style={styles.plansTitle}>Your Plans</Text>
+    <View style={[styles.screen, { backgroundColor: colors.bg }]}>
+      <Text style={[styles.plansTitle, { color: colors.text }]}>Your Plans</Text>
 
       <ScrollView
         style={{ flex: 1 }}
@@ -89,7 +94,7 @@ function PlansScreen({ navigation }: any) {
             {/* Upcoming Plans Section */}
             {upcoming.length > 0 && (
               <>
-                <Text style={styles.sectionTitle}>Upcoming Plans ({upcoming.length})</Text>
+                <Text style={[styles.sectionTitle, { color: colors.text }]}>Upcoming Plans ({upcoming.length})</Text>
                 {upcoming.map(plan => {
                   const isActive = activePlan?.id === plan.id;
                   const firstTrip = plan.trips && plan.trips.length > 0 ? plan.trips[0] : null;
@@ -100,6 +105,7 @@ function PlansScreen({ navigation }: any) {
                       <TouchableOpacity
                         style={[
                           styles.planCard,
+                          { backgroundColor: isActive ? '#C7F5E8' : colors.surface },
                           isActive && styles.planCardActive
                         ]}
                         onPress={() => {
@@ -109,18 +115,18 @@ function PlansScreen({ navigation }: any) {
                         <View style={styles.planCardContent}>
                           <View style={styles.planCardLeft}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              <Text style={styles.planCardTitle}>{plan.name || (plan.trips && plan.trips.length > 0 ? `Trip to ${plan.trips[0].to}` : 'My Trip')}</Text>
+                              <Text style={[styles.planCardTitle, { color: isActive ? '#0D4C4A' : colors.text }]}>{plan.name || (plan.trips && plan.trips.length > 0 ? `Trip to ${plan.trips[0].to}` : 'My Trip')}</Text>
                               {isActive && (
                                 <View style={styles.activeBadge}>
                                   <Text style={styles.activeBadgeText}>Active</Text>
                                 </View>
                               )}
                             </View>
-                            <Text style={styles.planCardSubtitle}>
+                            <Text style={[styles.planCardSubtitle, { color: isActive ? '#0F766E' : colors.subtext }]}>
                               {plan.trips?.length || 0} trip{(plan.trips?.length || 0) !== 1 ? 's' : ''}
                             </Text>
                             {departDate ? (
-                              <Text style={styles.planCardDate}>
+                              <Text style={[styles.planCardDate, { color: isActive ? '#0F766E' : colors.subtext }]}>
                                 Departs {moment(departDate).format('MMM D')}
                               </Text>
                             ) : null}
@@ -141,6 +147,9 @@ function PlansScreen({ navigation }: any) {
                             <TouchableOpacity
                               onPress={(e) => {
                                 e.stopPropagation();
+                                // Track plan deletion
+                                const tripCount = plan.trips?.length || 0;
+                                Analytics.logPlanDeleted(plans.length - 1, tripCount);
                                 deletePlan(plan.id);
                               }}
                               style={styles.planDeleteButton}
@@ -161,10 +170,10 @@ function PlansScreen({ navigation }: any) {
               past.length > 0 && (
                 <>
                   <TouchableOpacity
-                    style={styles.pastPlansToggle}
+                    style={[styles.pastPlansToggle, { borderTopColor: colors.border }]}
                     onPress={() => setShowPastPlans(!showPastPlans)}
                   >
-                    <Text style={styles.pastPlansToggleText}>
+                    <Text style={[styles.pastPlansToggleText, { color: colors.subtext }]}>
                       Past Plans ({past.length})
                     </Text>
                     <Icon
@@ -181,19 +190,19 @@ function PlansScreen({ navigation }: any) {
                     return (
                       <View key={plan.id} style={{ marginBottom: 4 }}>
                         <TouchableOpacity
-                          style={[styles.planCard, styles.pastPlanCard]}
+                          style={[styles.planCard, styles.pastPlanCard, { backgroundColor: colors.surface }]}
                           onPress={() => {
                             navigation.navigate('TripDetail', { plan: plan });
                           }}
                         >
                           <View style={styles.planCardContent}>
                             <View style={styles.planCardLeft}>
-                              <Text style={styles.planCardTitle}>{plan.name || (plan.trips && plan.trips.length > 0 ? `Trip to ${plan.trips[0].to}` : 'My Trip')}</Text>
-                              <Text style={styles.planCardSubtitle}>
+                              <Text style={[styles.planCardTitle, { color: colors.text }]}>{plan.name || (plan.trips && plan.trips.length > 0 ? `Trip to ${plan.trips[0].to}` : 'My Trip')}</Text>
+                              <Text style={[styles.planCardSubtitle, { color: colors.subtext }]}>
                                 {plan.trips?.length || 0} trip{(plan.trips?.length || 0) !== 1 ? 's' : ''}
                               </Text>
                               {departDate ? (
-                                <Text style={styles.planCardDate}>
+                                <Text style={[styles.planCardDate, { color: colors.subtext }]}>
                                   Departed {moment(departDate).format('MMM D')}
                                 </Text>
                               ) : null}
@@ -214,6 +223,9 @@ function PlansScreen({ navigation }: any) {
                               <TouchableOpacity
                                 onPress={(e) => {
                                   e.stopPropagation();
+                                  // Track plan deletion
+                                  const tripCount = plan.trips?.length || 0;
+                                  Analytics.logPlanDeleted(plans.length - 1, tripCount);
                                   deletePlan(plan.id);
                                 }}
                                 style={styles.planDeleteButton}
@@ -258,28 +270,76 @@ function NotificationUpdater() {
   return null;
 }
 
+const { width } = Dimensions.get('window');
+const TAB_BAR_WIDTH = width - 40; // 20px margin left and right
+const TAB_WIDTH = TAB_BAR_WIDTH / 3;
+
+function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const [translateX] = React.useState(new Animated.Value(0));
+  const { isDark, colors } = useTheme();
+
+  React.useEffect(() => {
+    Animated.spring(translateX, {
+      toValue: state.index * TAB_WIDTH,
+      useNativeDriver: true,
+      bounciness: 8,
+      speed: 12,
+    }).start();
+  }, [state.index, translateX]);
+
+  return (
+    <View style={[styles.tabBarContainer, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.95)' : 'rgba(255, 255, 255, 0.95)' }]}>
+      <Animated.View
+        style={[
+          styles.activeTabBackground,
+          {
+            width: TAB_WIDTH - 20, // 10px padding inside each tab block
+            transform: [{ translateX }],
+          }
+        ]}
+      />
+      {state.routes.map((route, index) => {
+        const { options } = descriptors[route.key];
+        const isFocused = state.index === index;
+
+        const onPress = () => {
+          const event = navigation.emit({
+            type: 'tabPress',
+            target: route.key,
+            canPreventDefault: true,
+          });
+
+          if (!isFocused && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
+
+        const activeColor = '#5EDAD9'; // Vibrant teal for active state in BOTH modes
+        const inactiveColor = isDark ? '#94A3B8' : '#000000'; // Slate in dark mode, pure black in light mode
+        const color = isFocused ? activeColor : inactiveColor;
+
+        return (
+          <TouchableOpacity
+            key={route.key}
+            onPress={onPress}
+            style={styles.tabItem}
+            activeOpacity={0.8}
+          >
+            {options.tabBarIcon && options.tabBarIcon({ focused: isFocused, color, size: 24 })}
+            <Text style={[styles.tabLabel, { color }]}>{route.name}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 function MainTabs() {
+  const { isDark, colors } = useTheme();
   return (
     <Tab.Navigator
+      tabBar={props => <CustomTabBar {...props} />}
       screenOptions={{
-        tabBarStyle: {
-          backgroundColor: '#FFFFFF',
-          borderTopColor: '#E2E8F0',
-          paddingBottom: 8,
-          paddingTop: 8,
-          height: 90,
-        },
-        tabBarActiveTintColor: '#5EDAD9',
-        tabBarInactiveTintColor: '#94A3B8',
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '600',
-          fontFamily: 'Jua',
-          marginTop: 4,
-        },
-        tabBarIconStyle: {
-          marginTop: 4,
-        },
         headerShown: false,
       }}
     >
@@ -330,19 +390,37 @@ function SplashScreen() {
 
 function MainApp() {
   const { isLoading, plans } = usePlans();
+  const { isDark } = useTheme();
   const plansRef = useRef(plans);
   plansRef.current = plans; // Keep ref updated
 
   const [isSplashMinTimeElapsed, setSplashMinTimeElapsed] = React.useState(false);
   const [isSplashMaxTimeElapsed, setSplashMaxTimeElapsed] = React.useState(false);
   const [hasSeenIntro, setHasSeenIntro] = React.useState<boolean | null>(null);
+  const [updateRequired, setUpdateRequired] = React.useState<boolean | null>(null); // null = checking, true = update needed, false = ok
   const navigationRef = useRef<any>(null);
 
-  // <--- NEW: CHECK INTRO STATUS
+  // <--- NEW: CHECK INTRO STATUS AND VERSION
   useEffect(() => {
     checkIntroStatus();
+    checkVersion();
     Analytics.identifySession();
+    // Track app version and basic properties
+    const version = DeviceInfo.getVersion();
+    Analytics.updateUserProperties({
+      app_version: version,
+    });
   }, []);
+
+  const checkVersion = async () => {
+    try {
+      const needsUpdate = await isUpdateRequired();
+      setUpdateRequired(needsUpdate);
+    } catch (e) {
+      console.error('Error checking version', e);
+      setUpdateRequired(false); // Don't block user if check fails
+    }
+  };
 
   const checkIntroStatus = async () => {
     try {
@@ -428,7 +506,7 @@ function MainApp() {
       return;
     }
 
-    const { planName, phase } = notification.data || {};
+    const { planName, phase, cardId } = notification.data || {};
     console.log('[App] Notification Tapped. Data:', notification.data);
 
     if (planName) {
@@ -440,7 +518,8 @@ function MainApp() {
       if (targetPlan) {
         navigationRef.current.navigate('TripDetail', {
           plan: targetPlan,
-          initialPhase: phase || 'today' // Use specific phase if provided, else default
+          initialPhase: phase || 'today', // Use specific phase if provided, else default
+          initialAction: cardId
         });
       } else {
         navigationRef.current.navigate('MainTabs', { screen: 'Today' });
@@ -457,13 +536,14 @@ function MainApp() {
   // This ensures at least 2s of splash, and at most 3s of splash (even if slow data)
   const showSplash = !isSplashMinTimeElapsed || (isLoading && !isSplashMaxTimeElapsed);
 
-
-  if (showSplash || hasSeenIntro === null) {
+  // Show splash while checking version or intro status
+  if (showSplash || hasSeenIntro === null || updateRequired === null) {
     return <SplashScreen />;
   }
 
   return (
     <>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
       <NotificationUpdater />
       <NavigationContainer
         ref={navigationRef}
@@ -511,6 +591,9 @@ function MainApp() {
           />
         </Stack.Navigator>
       </NavigationContainer>
+
+      {/* Force Update Screen - renders as overlay after app loads */}
+      {updateRequired && <ForceUpdateScreen />}
     </>
   );
 }
@@ -518,7 +601,9 @@ function MainApp() {
 export default function App() {
   return (
     <PlanProvider>
-      <MainApp />
+      <ThemeProvider>
+        <MainApp />
+      </ThemeProvider>
     </PlanProvider>
   );
 }
@@ -631,6 +716,7 @@ const styles = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     marginTop: 20,
+    marginBottom: 110, // Increased to keep clear of floating tab bar
   },
   createPlanButtonText: {
     fontFamily: 'Jua',
@@ -652,8 +738,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 8,
     marginTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopWidth: 0,
+    borderTopColor: 'transparent',
   },
   pastPlansToggleText: {
     fontFamily: 'Jua',
@@ -679,5 +765,40 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
+  },
+  tabBarContainer: {
+    position: 'absolute',
+    bottom: 30,
+    left: 20,
+    right: 20,
+    height: 70,
+    borderRadius: 35,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  activeTabBackground: {
+    position: 'absolute',
+    left: 10, // Centers inside the tab block based on padding
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(94, 218, 217, 0.15)', // Light translucent teal liquid hover
+  },
+  tabItem: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 70,
+    zIndex: 1,
+  },
+  tabLabel: {
+    fontFamily: 'Jua',
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '600',
   },
 });

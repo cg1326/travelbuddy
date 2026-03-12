@@ -10,10 +10,15 @@ import {
   Image,
   Dimensions,
   Modal,
+  Animated,
+  Easing,
+  SafeAreaView
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { usePlans } from '../context/PlanContext';
+import { useTheme } from '../context/ThemeContext';
 import {
   getNotificationSettings,
   saveNotificationSettings,
@@ -22,9 +27,11 @@ import {
   startPersistentNotificationUpdater,
   stopPersistentNotification
 } from '../utils/notificationScheduler';
+import PreferenceProfile from './PreferenceProfile';
 
 export default function ProfileSettings() {
   const { userSettings, updateUserSettings, plans } = usePlans();
+  const { colors, isDark, timeBasedNightMode, setNightMode } = useTheme();
 
   // Helper function to convert 24-hour to 12-hour format
   const format12Hour = (time24: string): string => {
@@ -47,6 +54,9 @@ export default function ProfileSettings() {
   // About Us Modal State
   const [showAboutModal, setShowAboutModal] = useState(false);
 
+  // Preference Profile Modal State
+  const [showPreferenceModal, setShowPreferenceModal] = useState(false);
+
   // Notification settings state
   const [notifSettings, setNotifSettings] = useState<NotificationSettings>({
     enabled: true,
@@ -60,6 +70,38 @@ export default function ProfileSettings() {
     }
     loadSettings();
   }, []);
+
+  // Animation ref
+  const shakeAnim = React.useRef(new Animated.Value(0)).current;
+
+  // Shake animation on first visit
+  useEffect(() => {
+    const runShakeAnimation = async () => {
+      try {
+        const hasShaken = await AsyncStorage.getItem('profile_icon_shaken');
+        if (!hasShaken) {
+          // Delay slightly so user sees it
+          setTimeout(() => {
+            Animated.sequence([
+              Animated.timing(shakeAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+              Animated.timing(shakeAnim, { toValue: -1, duration: 100, useNativeDriver: true }),
+              Animated.timing(shakeAnim, { toValue: 1, duration: 100, useNativeDriver: true }),
+              Animated.timing(shakeAnim, { toValue: 0, duration: 100, useNativeDriver: true }),
+            ]).start();
+            AsyncStorage.setItem('profile_icon_shaken', 'true');
+          }, 500);
+        }
+      } catch (e) {
+        console.error("Failed to run animation logic", e);
+      }
+    };
+    runShakeAnimation();
+  }, []);
+
+  const spin = shakeAnim.interpolate({
+    inputRange: [-1, 1],
+    outputRange: ['-15deg', '15deg']
+  });
 
   // Initialize time pickers
   useEffect(() => {
@@ -127,28 +169,33 @@ export default function ProfileSettings() {
   };
 
   return (
-    <View style={styles.outerContainer}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Your Profile</Text>
+    <View style={[styles.outerContainer, { backgroundColor: colors.bg }]}>
+      <View style={[styles.header, { backgroundColor: colors.bg }]}>
+        <Text style={[styles.title, { color: colors.text }]}>Your Profile</Text>
         <TouchableOpacity onPress={() => setShowAboutModal(true)}>
-          <Image
-            source={require('../assets/images/iconplane.png')}
-            style={{ width: 40, height: 40, resizeMode: 'contain' }}
+          <Animated.Image
+            source={require('../assets/images/planeicon.png')}
+            style={{
+              width: 40,
+              height: 40,
+              resizeMode: 'contain',
+              transform: [{ rotate: spin }]
+            }}
           />
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.container}>
+      <ScrollView style={[styles.container, { backgroundColor: colors.bg }]}>
 
 
 
         {/* Sleep Schedule Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Sleep Schedule</Text>
+        <View style={[styles.section, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Sleep Schedule</Text>
 
-          <Text style={styles.label}>Normal Bedtime</Text>
-          <View style={styles.timeDisplay}>
-            <Text style={styles.timeText}>{format12Hour(bedtime)}</Text>
+          <Text style={[styles.label, { color: colors.subtext }]}>Normal Bedtime</Text>
+          <View style={[styles.timeDisplay, { borderColor: colors.border }]}>
+            <Text style={[styles.timeText, { color: colors.text }]}>{format12Hour(bedtime)}</Text>
             <TouchableOpacity
               style={styles.selectButton}
               onPress={() => setShowBedtimePicker(!showBedtimePicker)}
@@ -164,14 +211,14 @@ export default function ProfileSettings() {
               mode="time"
               display="spinner"
               onChange={onBedtimeChange}
-              textColor="black"
-              themeVariant="light"
+              textColor={isDark ? "white" : "black"}
+              themeVariant={isDark ? "dark" : "light"}
             />
           )}
 
-          <Text style={styles.label}>Normal Wake Time</Text>
-          <View style={styles.timeDisplay}>
-            <Text style={styles.timeText}>{format12Hour(wakeTime)}</Text>
+          <Text style={[styles.label, { color: colors.subtext }]}>Normal Wake Time</Text>
+          <View style={[styles.timeDisplay, { borderColor: colors.border }]}>
+            <Text style={[styles.timeText, { color: colors.text }]}>{format12Hour(wakeTime)}</Text>
             <TouchableOpacity
               style={styles.selectButton}
               onPress={() => setShowWakeTimePicker(!showWakeTimePicker)}
@@ -187,15 +234,15 @@ export default function ProfileSettings() {
               mode="time"
               display="spinner"
               onChange={onWakeTimeChange}
-              textColor="black"
-              themeVariant="light"
+              textColor={isDark ? "white" : "black"}
+              themeVariant={isDark ? "dark" : "light"}
             />
           )}
         </View>
 
         {/* Supplements Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Supplements</Text>
+        <View style={[styles.section, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Supplements</Text>
           <View style={styles.warningBox}>
             <Text style={styles.warningText}>
               ⚠️ Consult with a healthcare provider before taking supplements
@@ -204,8 +251,8 @@ export default function ProfileSettings() {
 
           <View style={styles.settingRow}>
             <View style={styles.settingTextContainer}>
-              <Text style={styles.settingLabel}>Melatonin</Text>
-              <Text style={styles.settingSubtext}>Include in recommendations</Text>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Melatonin</Text>
+              <Text style={[styles.settingSubtext, { color: colors.subtext }]}>Include in recommendations</Text>
             </View>
             <Switch
               value={useMelatonin}
@@ -225,8 +272,8 @@ export default function ProfileSettings() {
 
           <View style={styles.settingRow}>
             <View style={styles.settingTextContainer}>
-              <Text style={styles.settingLabel}>Magnesium</Text>
-              <Text style={styles.settingSubtext}>Include in recommendations</Text>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Magnesium</Text>
+              <Text style={[styles.settingSubtext, { color: colors.subtext }]}>Include in recommendations</Text>
             </View>
             <Switch
               value={useMagnesium}
@@ -246,13 +293,13 @@ export default function ProfileSettings() {
         </View>
 
         {/* Notifications Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notifications</Text>
+        <View style={[styles.section, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Notifications</Text>
 
           <View style={styles.settingRow}>
             <View style={styles.settingTextContainer}>
-              <Text style={styles.settingLabel}>Enable Notifications</Text>
-              <Text style={styles.settingSubtext}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Enable Notifications</Text>
+              <Text style={[styles.settingSubtext, { color: colors.subtext }]}>
                 Get reminders before each action
               </Text>
             </View>
@@ -265,9 +312,49 @@ export default function ProfileSettings() {
           </View>
         </View>
 
+        {/* Display Section */}
+        <View style={[styles.section, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Display</Text>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingTextContainer}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>Time-Based Night Mode</Text>
+              <Text style={[styles.settingSubtext, { color: colors.subtext }]}>
+                Darkens the app at night based on your destination's local time
+              </Text>
+            </View>
+            <Switch
+              value={timeBasedNightMode}
+              onValueChange={(val) => {
+                setNightMode(val);
+              }}
+              trackColor={{ false: '#D1D5DB', true: '#5EDAD9' }}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+        </View>
+
+        {/* Preferences Section */}
+        <View style={[styles.section, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Personalization</Text>
+
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => setShowPreferenceModal(true)}
+          >
+            <View style={styles.settingTextContainer}>
+              <Text style={[styles.settingLabel, { color: colors.text }]}>My Travel Style</Text>
+              <Text style={[styles.settingSubtext, { color: colors.subtext }]}>
+                View and manage how TravelBuddy adapts to you
+              </Text>
+            </View>
+            <Icon name="chevron-right" size={20} color={colors.subtext} />
+          </TouchableOpacity>
+        </View>
+
         {/* General Disclaimer */}
-        <View style={styles.disclaimerContainer}>
-          <Text style={styles.disclaimerText}>
+        <View style={[styles.disclaimerContainer, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.disclaimerText, { color: colors.subtext }]}>
             This app provides general travel and lifestyle guidance and does not offer medical advice. Always consult a qualified healthcare professional regarding supplements, sleep concerns, or health-related questions.
           </Text>
         </View>
@@ -307,6 +394,23 @@ export default function ProfileSettings() {
           </View>
         </View>
       </Modal>
+
+      {/* Preference Profile Modal */}
+      <Modal
+        visible={showPreferenceModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowPreferenceModal(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 16 }}>
+            <TouchableOpacity onPress={() => setShowPreferenceModal(false)}>
+              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1E293B' }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <PreferenceProfile />
+        </SafeAreaView>
+      </Modal>
     </View >
   );
 }
@@ -314,10 +418,8 @@ export default function ProfileSettings() {
 const styles = StyleSheet.create({
   outerContainer: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
   },
   header: {
-    backgroundColor: '#F8FAFC',
     paddingTop: 76,
     paddingHorizontal: 16,
     paddingBottom: 16,

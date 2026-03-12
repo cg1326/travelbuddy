@@ -14,6 +14,7 @@ import { generateJetLagPlan, getDefaultUserSettings, calculateStayDuration, Trip
 import { checkForConnectionConflicts } from '../utils/conflictDetection';
 import moment from 'moment';
 import ConflictModal from '../components/ConflictModal';
+import { useTheme } from '../context/ThemeContext';
 
 // Local interfaces removed in favor of importing from jetLagAlgorithm
 // (or if necessary, keep them matching, but we should use the imported one to avoid issues)
@@ -21,8 +22,9 @@ import ConflictModal from '../components/ConflictModal';
 import { Analytics } from '../utils/Analytics'; // Import Analytics
 
 export default function ReviewPlan({ route, navigation }: any) {
-  const { planName, trips: initialTrips } = route.params;
-  const { addPlan, updatePlan, plans } = usePlans(); // Get plans to count them
+  const { planName, trips: initialTrips, mode, existingPlanId } = route.params;
+  const { addPlan, updatePlan, plans } = usePlans();
+  const { colors, isDark } = useTheme(); // Get plans to count them
 
   // Local state for trips to handling modifications (preferences)
   const [localTrips, setLocalTrips] = useState<Trip[]>(initialTrips);
@@ -103,7 +105,21 @@ export default function ReviewPlan({ route, navigation }: any) {
           const end = moment(lastTrip.arriveDate);
           const duration = end.diff(start, 'days') + 1; // Inclusive
 
+          // Enhanced analytics with trip complexity
+          const hasConnections = savedPlan.trips.some((t: Trip) => t.hasConnections);
+          const totalSegments = savedPlan.trips.reduce((sum: number, t: Trip) =>
+            sum + (t.segments?.length || 1), 0
+          );
+
           Analytics.logTripCreated(planCount, duration);
+
+          // Track additional trip metrics
+          Analytics.logEvent('trip_created_detailed', {
+            trip_count: savedPlan.trips.length,
+            has_connections: hasConnections,
+            total_segments: totalSegments,
+            has_preferences: savedPlan.trips.some((t: Trip) => t.adjustmentPreference)
+          });
         }
       }
 
@@ -186,7 +202,7 @@ export default function ReviewPlan({ route, navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* ────── Custom Header ────── */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -194,9 +210,9 @@ export default function ReviewPlan({ route, navigation }: any) {
           style={styles.headerBackButton}
           hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
         >
-          <Icon name="chevron-left" size={28} color="#1E293B" />
+          <Icon name="chevron-left" size={28} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Review Plan</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Review Plan</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -205,11 +221,11 @@ export default function ReviewPlan({ route, navigation }: any) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.title}>Review Your Plan</Text>
-        <Text style={styles.subtitle}>"{planName}"</Text>
+        <Text style={[styles.title, { color: colors.text }]}>Review Your Plan</Text>
+        <Text style={[styles.subtitle, { color: colors.subtext }]}>"{planName}"</Text>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Trips in this plan:</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Trips in this plan:</Text>
           {localTrips.map((trip: Trip, index: number) => {
             // Calculate stay duration to determine if we show the option
             const nextTrip = localTrips[index + 1];
@@ -222,9 +238,9 @@ export default function ReviewPlan({ route, navigation }: any) {
             const shouldShowPreference = isShortTrip && isRoundTrip;
 
             return (
-              <View key={trip.id} style={styles.tripCard}>
-                <Text style={styles.tripNumber}>Trip {index + 1}</Text>
-                <Text style={styles.tripRoute}>
+              <View key={trip.id} style={[styles.tripCard, { backgroundColor: colors.surface }]}>
+                <Text style={[styles.tripNumber, { color: colors.text }]}>Trip {index + 1}</Text>
+                <Text style={[styles.tripRoute, { color: colors.text }]}>
                   {trip.from} {'>'} {trip.to}
                 </Text>
                 <Text style={styles.tripDetail}>
@@ -241,10 +257,10 @@ export default function ReviewPlan({ route, navigation }: any) {
 
                 {/* Conditional Adjustment Preference for Short Round Trips */}
                 {shouldShowPreference && (
-                  <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: '#F1F5F9' }}>
+                  <View style={{ marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.border }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                      <Icon name="clock" size={14} color="#64748B" style={{ marginRight: 6 }} />
-                      <Text style={{ fontSize: 13, color: '#64748B', fontFamily: 'Jua' }}>
+                      <Icon name="clock" size={14} color={colors.subtext} style={{ marginRight: 6 }} />
+                      <Text style={{ fontSize: 13, color: colors.subtext, fontFamily: 'Jua' }}>
                         Short Trip detected ({Math.round(stayDuration)} days). Strategy:
                       </Text>
                     </View>
@@ -256,9 +272,9 @@ export default function ReviewPlan({ route, navigation }: any) {
                           paddingVertical: 8,
                           paddingHorizontal: 10,
                           borderRadius: 8,
-                          backgroundColor: (trip.adjustmentPreference === 'stay_home' || !trip.adjustmentPreference) ? '#E0F2FE' : '#F8FAFC',
+                          backgroundColor: (trip.adjustmentPreference === 'stay_home' || !trip.adjustmentPreference) ? '#E0F2FE' : colors.bg,
                           borderWidth: 1,
-                          borderColor: (trip.adjustmentPreference === 'stay_home' || !trip.adjustmentPreference) ? '#0EA5E9' : '#E2E8F0',
+                          borderColor: (trip.adjustmentPreference === 'stay_home' || !trip.adjustmentPreference) ? '#0EA5E9' : colors.border,
                           alignItems: 'center'
                         }}
                         onPress={() => updateTripPreference(trip.id, 'stay_home')}
@@ -266,7 +282,7 @@ export default function ReviewPlan({ route, navigation }: any) {
                         <Text style={{
                           fontFamily: 'Jua',
                           fontSize: 13,
-                          color: (trip.adjustmentPreference === 'stay_home' || !trip.adjustmentPreference) ? '#0284C7' : '#64748B'
+                          color: (trip.adjustmentPreference === 'stay_home' || !trip.adjustmentPreference) ? '#0284C7' : colors.subtext
                         }}>
                           Stay on Origin Time
                         </Text>
@@ -278,9 +294,9 @@ export default function ReviewPlan({ route, navigation }: any) {
                           paddingVertical: 8,
                           paddingHorizontal: 10,
                           borderRadius: 8,
-                          backgroundColor: trip.adjustmentPreference === 'adjust' ? '#F0FDF4' : '#F8FAFC',
+                          backgroundColor: trip.adjustmentPreference === 'adjust' ? '#F0FDF4' : colors.bg,
                           borderWidth: 1,
-                          borderColor: trip.adjustmentPreference === 'adjust' ? '#22C55E' : '#E2E8F0',
+                          borderColor: trip.adjustmentPreference === 'adjust' ? '#22C55E' : colors.border,
                           alignItems: 'center'
                         }}
                         onPress={() => updateTripPreference(trip.id, 'adjust')}
@@ -288,7 +304,7 @@ export default function ReviewPlan({ route, navigation }: any) {
                         <Text style={{
                           fontFamily: 'Jua',
                           fontSize: 13,
-                          color: trip.adjustmentPreference === 'adjust' ? '#16A34A' : '#64748B'
+                          color: trip.adjustmentPreference === 'adjust' ? '#15803D' : colors.subtext
                         }}>
                           Adjust Fully
                         </Text>
@@ -301,14 +317,14 @@ export default function ReviewPlan({ route, navigation }: any) {
           })}
         </View>
 
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>
+        <View style={[styles.infoBox, { backgroundColor: isDark ? colors.surface : '#EFF6FF' }]}>
+          <Text style={[styles.infoText, { color: isDark ? colors.text : '#1E40AF' }]}>
             Your personalized plan will be generated based on:
           </Text>
-          <Text style={styles.infoItem}>• Flight times and layovers</Text>
-          <Text style={styles.infoItem}>• Timezone differences</Text>
-          <Text style={styles.infoItem}>• Travel direction (east vs west)</Text>
-          <Text style={styles.infoItem}>• Your sleep preferences</Text>
+          <Text style={[styles.infoItem, { color: isDark ? colors.text : '#1E40AF' }]}>• Flight times and layovers</Text>
+          <Text style={[styles.infoItem, { color: isDark ? colors.text : '#1E40AF' }]}>• Timezone differences</Text>
+          <Text style={[styles.infoItem, { color: isDark ? colors.text : '#1E40AF' }]}>• Travel direction (east vs west)</Text>
+          <Text style={[styles.infoItem, { color: isDark ? colors.text : '#1E40AF' }]}>• Your sleep preferences</Text>
         </View>
 
         <TouchableOpacity style={styles.saveButton} onPress={handleSavePlan}>
@@ -318,10 +334,10 @@ export default function ReviewPlan({ route, navigation }: any) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.backButton}
+          style={[styles.backButton, { backgroundColor: isDark ? colors.surface : '#F3F4F6' }]}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.backButtonText}>Back to Edit</Text>
+          <Text style={[styles.backButtonText, { color: isDark ? colors.text : '#64748B' }]}>Back to Edit</Text>
         </TouchableOpacity>
 
         <View style={styles.spacer} />

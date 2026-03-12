@@ -72,12 +72,20 @@ export const lookupFlight = async (flightNumber: string, date?: string): Promise
 
         // console.log("Looking up flight:", fullUrl);
 
-        const response = await fetch(fullUrl, {
+        const fetchPromise = fetch(fullUrl, {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
             }
         });
+
+        const timeoutPromise = new Promise<Response>((_, reject) => {
+            setTimeout(() => {
+                reject(new Error("Request timed out after 15 seconds. Please try again later."));
+            }, 15000);
+        });
+
+        const response = await Promise.race([fetchPromise, timeoutPromise]);
 
         const data = await response.json();
 

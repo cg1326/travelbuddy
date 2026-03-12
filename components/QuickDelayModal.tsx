@@ -3,6 +3,7 @@ import { View, Text, Modal, TouchableOpacity, StyleSheet, Platform, ScrollView }
 import DateTimePicker from '@react-native-community/datetimepicker';
 import moment from 'moment';
 import Icon from 'react-native-vector-icons/Feather';
+import { useTheme } from '../context/ThemeContext';
 
 interface TripSegment {
     from: string;
@@ -16,7 +17,7 @@ interface TripSegment {
 interface QuickDelayModalProps {
     visible: boolean;
     onClose: () => void;
-    onApplyDelay: (minutes: number, segmentIndex?: number) => void;
+    onApplyDelay: (minutes: number, segmentIndex?: number, updateDeparture?: boolean) => void;
     scheduledArriveTime: moment.Moment;
     segments?: TripSegment[];
 }
@@ -28,23 +29,58 @@ export default function QuickDelayModal({
     scheduledArriveTime,
     segments,
 }: QuickDelayModalProps) {
+    const { colors, isDark } = useTheme();
+
+    // FIX 1: Wall Clock Helper
+    // Initialize picker with "Wall Clock" time of the destination, not absolute timestamp.
+    const getWallClockDate = (m: moment.Moment) => {
+        return new Date(
+            m.year(),
+            m.month(),
+            m.date(),
+            m.hour(),
+            m.minute()
+        );
+    };
+
     const [showPicker, setShowPicker] = useState(false);
-    const [tempDate, setTempDate] = useState<Date>(scheduledArriveTime.toDate());
+    // Initialize with Wall Clock time
+    const [tempDate, setTempDate] = useState<Date>(getWallClockDate(scheduledArriveTime));
     const [selectedSegmentIndex, setSelectedSegmentIndex] = useState<number | null>(null);
 
     const isMultiLeg = segments && segments.length > 1;
     const showSegmentSelection = isMultiLeg && selectedSegmentIndex === null;
+
+    // FIX 2: Multi-Segment Helper
+    // Get the "Scheduled Time" of the *currently selected segment* (or final if none)
+    const getActiveScheduledTime = () => {
+        if (selectedSegmentIndex !== null && segments && segments[selectedSegmentIndex]) {
+            const seg = segments[selectedSegmentIndex];
+            // Construct moment from segment strings (these are already local)
+            return moment(`${seg.arriveDate} ${seg.arriveTime}`, 'YYYY-MM-DD HH:mm');
+        }
+        return scheduledArriveTime;
+    };
 
     // Reset selection when modal closes
     React.useEffect(() => {
         if (!visible) {
             setSelectedSegmentIndex(null);
             setShowPicker(false);
+            setTempDate(getWallClockDate(scheduledArriveTime));
         }
-    }, [visible]);
+    }, [visible, scheduledArriveTime]);
+
+    // Update picker baseline when a segment is selected
+    React.useEffect(() => {
+        if (selectedSegmentIndex !== null) {
+            const activeTime = getActiveScheduledTime();
+            setTempDate(getWallClockDate(activeTime));
+        }
+    }, [selectedSegmentIndex]);
 
     const handleQuickOption = (minutes: number) => {
-        onApplyDelay(minutes, selectedSegmentIndex ?? undefined);
+        onApplyDelay(minutes, selectedSegmentIndex ?? undefined, true);
         onClose();
         setSelectedSegmentIndex(null);
     };
@@ -63,8 +99,9 @@ export default function QuickDelayModal({
         // We want the difference between the face of the clock on the picker 
         // and the face of the clock on the scheduled arrival.
 
-        // 1. Get Scheduled Time as simple string (in its home timezone)
-        const originalStr = scheduledArriveTime.format('YYYY-MM-DD HH:mm');
+        // 1. Get Scheduled Time of the TARGET SEGMENT
+        const activeScheduledTime = getActiveScheduledTime();
+        const originalStr = activeScheduledTime.format('YYYY-MM-DD HH:mm');
         const originalWallClock = moment(originalStr, 'YYYY-MM-DD HH:mm'); // Local mode moment
 
         // 2. Get Picker Time as simple string (it's already local Date)
@@ -73,12 +110,20 @@ export default function QuickDelayModal({
 
         // AUTOMATIC OVERNIGHT DETECTION
         // If the user selects a time that is "earlier" than the original scheduled time 
-        // (e.g. Org: 2pm, Sel: 1am), we assume it means the NEXT day (1am tomorrow).
-        // Since the picker defaults to the same date, a simple isBefore check works.
+        // We need to decide if they mean "earlier today" or "wrapping to tomorrow (late delay)".
         if (newWallClock.isBefore(originalWallClock)) {
-            console.log('[QuickDelay] Selected time is before original. Assuming next day.');
-            newWallClock.add(1, 'day');
-            newTimeStr = newWallClock.format('YYYY-MM-DD HH:mm');
+            const diffHours = originalWallClock.diff(newWallClock, 'hours', true);
+
+            // Heuristic: If the time went back by more than 12 hours (e.g. 23:00 -> 01:00 is -22h), 
+            // assume it's a date boundary crossing (Next Day).
+            // If it's a small change (e.g. 12:30 -> 11:56 is -0.5h), assume it's just an early arrival (Same Day).
+            if (diffHours > 12) {
+                console.log('[QuickDelay] Large negative diff (>12h). Assuming next day.');
+                newWallClock.add(1, 'day');
+                newTimeStr = newWallClock.format('YYYY-MM-DD HH:mm');
+            } else {
+                console.log('[QuickDelay] Small negative diff. Keeping same day (early arrival).');
+            }
         }
 
 
@@ -89,7 +134,7 @@ export default function QuickDelayModal({
         console.log('  New (Wall):', newTimeStr);
         console.log('  Diff minutes:', diffMinutes);
 
-        onApplyDelay(diffMinutes, selectedSegmentIndex ?? undefined);
+        onApplyDelay(diffMinutes, selectedSegmentIndex ?? undefined, false);
         onClose();
         setShowPicker(false);
         setSelectedSegmentIndex(null);
@@ -109,25 +154,25 @@ export default function QuickDelayModal({
             onRequestClose={handleClose}
         >
             <View style={styles.overlay}>
-                <View style={styles.container}>
+                <View style={[styles.container, { backgroundColor: colors.surface }]}>
                     <View style={styles.header}>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             {selectedSegmentIndex !== null && isMultiLeg && (
                                 <TouchableOpacity onPress={() => setSelectedSegmentIndex(null)} style={{ marginRight: 10 }}>
-                                    <Icon name="arrow-left" size={24} color="#1E293B" />
+                                    <Icon name="arrow-left" size={24} color={colors.text} />
                                 </TouchableOpacity>
                             )}
-                            <Text style={styles.title}>Flight Delayed?</Text>
+                            <Text style={[styles.title, { color: colors.text }]}>Flight Delayed?</Text>
                         </View>
                         <TouchableOpacity onPress={handleClose}>
-                            <Icon name="x" size={24} color="#64748B" />
+                            <Icon name="x" size={24} color={colors.subtext} />
                         </TouchableOpacity>
                     </View>
 
 
                     {showSegmentSelection ? (
                         <>
-                            <Text style={styles.subtitle}>
+                            <Text style={[styles.subtitle, { color: colors.subtext }]}>
                                 Pick a flight to adjust:
                             </Text>
 
@@ -135,59 +180,61 @@ export default function QuickDelayModal({
                                 {segments!.map((segment, index) => (
                                     <TouchableOpacity
                                         key={index}
-                                        style={styles.segmentButton}
+                                        style={[styles.segmentButton, { backgroundColor: isDark ? colors.bg : '#F8FAFC', borderColor: colors.border }]}
                                         onPress={() => setSelectedSegmentIndex(index)}
                                     >
-                                        <View style={styles.segmentIcon}>
+                                        <View style={[styles.segmentIcon, { backgroundColor: isDark ? '#115E59' : '#E0F7F6' }]}>
                                             <Icon name="send" size={18} color="#5EDAD9" />
                                         </View>
                                         <View style={styles.segmentInfo}>
-                                            <Text style={styles.segmentRoute}>
+                                            <Text style={[styles.segmentRoute, { color: colors.text }]}>
                                                 {segment.from} {'>'} {segment.to}
                                             </Text>
-                                            <Text style={styles.segmentTime}>
+                                            <Text style={[styles.segmentTime, { color: colors.subtext }]}>
                                                 Departs: {moment(`${segment.departDate} ${segment.departTime}`, 'YYYY-MM-DD HH:mm').format('MMM D, h:mm A')}
                                             </Text>
                                         </View>
-                                        <Icon name="chevron-right" size={20} color="#94A3B8" />
+                                        <Icon name="chevron-right" size={20} color={colors.subtext} />
                                     </TouchableOpacity>
                                 ))}
                             </ScrollView>
                         </>
                     ) : (
                         <>
-                            <Text style={styles.subtitle}>
+                            <Text style={[styles.subtitle, { color: colors.subtext }]}>
                                 {isMultiLeg
                                     ? `Adjust arrival time for ${segments![selectedSegmentIndex!].from} > ${segments![selectedSegmentIndex!].to}`
                                     : 'Quickly adjust your arrival time. This will shift your entire schedule.'}
                             </Text>
 
                             <View style={styles.optionsGrid}>
-                                <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(15)}>
-                                    <Text style={styles.optionText}>+15 min</Text>
+                                <TouchableOpacity style={[styles.optionButton, { backgroundColor: isDark ? colors.bg : '#F1F5F9' }]} onPress={() => handleQuickOption(15)}>
+                                    <Text style={[styles.optionText, { color: colors.text }]}>+15 min</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(30)}>
-                                    <Text style={styles.optionText}>+30 min</Text>
+                                <TouchableOpacity style={[styles.optionButton, { backgroundColor: isDark ? colors.bg : '#F1F5F9' }]} onPress={() => handleQuickOption(30)}>
+                                    <Text style={[styles.optionText, { color: colors.text }]}>+30 min</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(60)}>
-                                    <Text style={styles.optionText}>+1 hour</Text>
+                                <TouchableOpacity style={[styles.optionButton, { backgroundColor: isDark ? colors.bg : '#F1F5F9' }]} onPress={() => handleQuickOption(60)}>
+                                    <Text style={[styles.optionText, { color: colors.text }]}>+1 hour</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity style={styles.optionButton} onPress={() => handleQuickOption(120)}>
-                                    <Text style={styles.optionText}>+2 hours</Text>
+                                <TouchableOpacity style={[styles.optionButton, { backgroundColor: isDark ? colors.bg : '#F1F5F9' }]} onPress={() => handleQuickOption(120)}>
+                                    <Text style={[styles.optionText, { color: colors.text }]}>+2 hours</Text>
                                 </TouchableOpacity>
                             </View>
 
                             <TouchableOpacity
-                                style={styles.customButton}
+                                style={[styles.customButton, { borderTopColor: colors.border }]}
                                 onPress={() => {
                                     if (!showPicker) {
-                                        setTempDate(scheduledArriveTime.toDate());
+                                        // Reset to current scheduled time (of the active segment) when opening
+                                        const activeTime = getActiveScheduledTime();
+                                        setTempDate(getWallClockDate(activeTime));
                                     }
                                     setShowPicker(!showPicker);
                                 }}
                             >
-                                <Text style={styles.customButtonText}>Set custom arrival time</Text>
-                                <Icon name="chevron-right" size={20} color="#1E293B" />
+                                <Text style={[styles.customButtonText, { color: colors.text }]}>Set custom arrival time</Text>
+                                <Icon name="chevron-right" size={20} color={colors.text} />
                             </TouchableOpacity>
 
                             {showPicker && (
@@ -197,7 +244,7 @@ export default function QuickDelayModal({
                                         mode="time"
                                         display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                                         onChange={handleCustomTimeChange}
-                                        themeVariant="light"
+                                        themeVariant={isDark ? "dark" : "light"}
                                     />
 
                                     {Platform.OS === 'ios' && (

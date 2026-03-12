@@ -2,6 +2,7 @@ import notifee, { AndroidImportance, AuthorizationStatus, TriggerType } from '@n
 import moment from 'moment-timezone';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { calculateTimezoneDiff } from './jetLagAlgorithm';
 
 const CHANNEL_ID = 'jet-lag-reminders';
 const PERSISTENT_NOTIFICATION_ID = 'jet-lag-persistent';
@@ -43,8 +44,18 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
   activePlan.jetLagPlans.forEach((jetLagPlan: any, tripIndex: number) => {
     const trip = activePlan.trips[tripIndex];
     if (!trip) return; // Guard against missing trip
+    const lastSegment = trip.segments && trip.segments.length > 0
+      ? trip.segments[trip.segments.length - 1]
+      : trip;
+    const destTz = lastSegment.toTz || trip.toTz;
+
+    // Safety fallback if no tz is present (rare)
+    const arriveDateStr = `${lastSegment.arriveDate} ${lastSegment.arriveTime}`;
+    const arriveDate = destTz
+      ? moment.tz(arriveDateStr, 'YYYY-MM-DD HH:mm', destTz)
+      : moment(arriveDateStr, 'YYYY-MM-DD HH:mm');
+
     const departDate = moment(trip.departDate);
-    const arriveDate = moment(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm');
 
     const processCard = (card: any, time: moment.Moment, phase: 'prepare' | 'travel' | 'adjust') => {
       // Check status
@@ -71,11 +82,14 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
     };
 
     // Prepare phase cards (2 days before departure)
-    const prepareStart = departDate.clone().subtract(2, 'days');
-    for (let day = 0; day < 2; day++) {
-      if (!jetLagPlan.phases.prepare || !jetLagPlan.phases.prepare.cards) continue;
-      for (const card of jetLagPlan.phases.prepare.cards) {
-        processCard(card, moment(card.dateTime), 'prepare');
+    // SKIP if strategy is 'stay_home' OR if suppressPreparePhase is true
+    if (jetLagPlan.strategy !== 'stay_home' && !jetLagPlan.suppressPreparePhase) {
+      const prepareStart = departDate.clone().subtract(2, 'days');
+      for (let day = 0; day < 2; day++) {
+        if (!jetLagPlan.phases.prepare || !jetLagPlan.phases.prepare.cards) continue;
+        for (const card of jetLagPlan.phases.prepare.cards) {
+          processCard(card, moment(card.dateTime), 'prepare');
+        }
       }
     }
 
@@ -87,77 +101,107 @@ function getAllPlanCards(activePlan: any, cardStatuses: Record<string, string> =
     }
 
     // Adjust phase cards
-    if (jetLagPlan.phases.adjust && jetLagPlan.phases.adjust.cards) {
-      for (const card of jetLagPlan.phases.adjust.cards) {
-        if (card.isDailyRoutine) continue;
-        processCard(card, moment(card.dateTime), 'adjust');
-      }
+    // SKIP if strategy is 'stay_home' OR if suppressAdjustPhase is true
+    // (Note: For Stay Home, we sometimes merge adjust cards into travel, but those are usually in currentTrip.phases.travel if merged at generation time. 
+    // If they are still in 'adjust' phase object, we should likely suppress them if the tab is hidden to avoid confusion, 
+    // OR we assume 'travel' phase contains everything needed for Stay Home.)
+    if (jetLagPlan.strategy !== 'stay_home' && !jetLagPlan.suppressAdjustPhase) {
+      if (jetLagPlan.phases.adjust && jetLagPlan.phases.adjust.cards) {
+        for (const card of jetLagPlan.phases.adjust.cards) {
+          if (card.isDailyRoutine) continue;
+          processCard(card, moment(card.dateTime), 'adjust');
+        }
 
-      // Daily Routine Logic
-      const dailyRoutineCards = jetLagPlan.phases.adjust.cards.filter(
-        (c: any) => c.isDailyRoutine && c.dateTime
-      );
+        // Daily Routine Logic
+        const dailyRoutineCards = jetLagPlan.phases.adjust.cards.filter(
+          (c: any) => c.isDailyRoutine && c.dateTime
+        );
 
-      const durationDays = jetLagPlan.phases.adjust.durationDays || 4;
+        const durationDays = jetLagPlan.phases.adjust.durationDays || 4;
 
-      // FIX: If arrived early morning (e.g. < 10 AM), start routine TODAY, not tomorrow.
-      const arriveHour = arriveDate.hours();
-      let startRoutineDate = arriveDate.clone().add(1, 'days'); // Default to tomorrow
+        // FIX: If arrived early morning (e.g. < 10 AM), start routine TODAY, not tomorrow.
+        const arriveHour = arriveDate.hours();
+        let startRoutineDate = arriveDate.clone().add(1, 'days'); // Default to tomorrow
 
-      if (arriveHour < 10) {
-        startRoutineDate = arriveDate.clone();
-      }
+        if (arriveHour < 10) {
+          startRoutineDate = arriveDate.clone();
+        }
 
-      for (let i = 0; i < durationDays; i++) {
-        const currentRoutineDay = startRoutineDate.clone().add(i, 'days');
-        for (const card of dailyRoutineCards) {
-          const cardTime = moment(card.dateTime);
-          const routineTime = currentRoutineDay.clone()
-            .hours(cardTime.hours())
-            .minutes(cardTime.minutes());
+        for (let i = 0; i < durationDays; i++) {
+          const currentRoutineDay = startRoutineDate.clone().add(i, 'days');
+          for (const card of dailyRoutineCards) {
+            // Must parse into destTz so that .hours() returns the nominal hour in the destination!
+            const cardTime = moment.tz(card.dateTime, destTz);
+            const routineTime = currentRoutineDay.clone()
+              .hours(cardTime.hours())
+              .minutes(cardTime.minutes());
 
-          // Handle overnight times (e.g. 1 AM bedtime belongs to the NEXT calendar day)
-          if (cardTime.hours() < 4) {
-            routineTime.add(1, 'day');
-          }
-
-          // Only add if this specific routine time is actually in the future relative to arrival
-          // e.g. If landed at 9 AM, and routine is 7 AM, skip today's 7 AM card.
-          if (routineTime.isAfter(arriveDate)) {
-            // DUPLICATE CHECK: 
-            // If this is a Sleep/Bedtime card, check if we already scheduled a specific Arrival Sleep card for this time.
-            // This prevents the "Double Sleep Notification" on the first night.
-            if (card.title.includes('Sleep') || card.title.includes('Bedtime')) {
-              const hasConflict = allCards.some(existing =>
-                (existing.title.includes('Sleep') || existing.title.includes('Bedtime')) &&
-                Math.abs(moment(existing.fullDateTime).diff(routineTime, 'hours')) < 4
-              );
-              if (hasConflict) continue;
+            // Handle overnight times (e.g. 1 AM bedtime belongs to the NEXT calendar day)
+            if (cardTime.hours() < 4) {
+              routineTime.add(1, 'day');
             }
 
-            processCard(card, routineTime, 'adjust');
+            // Only add if this specific routine time is actually in the future relative to arrival
+            // e.g. If landed at 9 AM, and routine is 7 AM, skip today's 7 AM card.
+            if (routineTime.isAfter(arriveDate)) {
+              // DUPLICATE CHECK: 
+              // If this is a Sleep/Bedtime card, check if we already scheduled a specific Arrival Sleep card for this time.
+              // This prevents the "Double Sleep Notification" on the first night.
+              if (card.title.includes('Sleep') || card.title.includes('Bedtime')) {
+                const hasConflict = allCards.some(existing =>
+                  (existing.title.includes('Sleep') || existing.title.includes('Bedtime')) &&
+                  Math.abs(moment(existing.fullDateTime).diff(routineTime, 'hours')) < 4
+                );
+                if (hasConflict) continue;
+              }
+
+              processCard(card, routineTime, 'adjust');
+            }
           }
         }
       }
-    }
-    // Inject "Welcome / Energy Check" Notification (At Arrival)
-    // This is a synthetic card just for notifications—it triggers the app to open,
-    // where TripDetails.tsx will automatically show the "Exhausted/Ok" modal.
-    // Suppress if this is a connection (adjust phase suppressed)
-    if (!jetLagPlan.suppressAdjustPhase) {
-      const energyCheckTime = arriveDate.clone().add(15, 'minutes'); // Delay by 15 mins to sync with popup
-      if (energyCheckTime.isValid()) {
-        allCards.push({
-          id: `energy-check-${tripIndex}`,
-          title: `Welcome to ${trip.to}!`,
-          time: 'Tell us how you feel post-flight so we can tailor the rest of your adjustment plan',
-          dateTime: energyCheckTime.toISOString(),
-          fullDateTime: energyCheckTime,
-          planName: activePlanName,
-          destination: trip.to,
-          phase: 'adjust', // Explicitly Adjust phase
-          isInfo: false, // Ensure it gets scheduled
-        });
+
+      // Inject "Welcome / Energy Check" Notification (At Arrival)
+      // This is a synthetic card just for notifications—it triggers the app to open,
+      // where TripDetails.tsx will automatically show the "Exhausted/Ok" modal.
+      // Suppress if this is a connection (adjust phase suppressed) OR stay_home
+      // Also suppress if the user already responded to the in-app modal (arrivalRestStatus is set)
+      if (!jetLagPlan.suppressAdjustPhase && jetLagPlan.strategy !== 'stay_home' && !trip.arrivalRestStatus) {
+        const energyCheckTime = arriveDate.clone().add(15, 'minutes'); // Delay by 15 mins to sync with popup
+        if (energyCheckTime.isValid()) {
+          allCards.push({
+            id: `energy-check-${tripIndex}`,
+            title: `Welcome to ${trip.to}!`,
+            time: 'Tell us how you feel post-flight so we can tailor the rest of your adjustment plan',
+            dateTime: energyCheckTime.toISOString(),
+            fullDateTime: energyCheckTime,
+            planName: activePlanName,
+            destination: trip.to,
+            phase: 'adjust', // Explicitly Adjust phase
+            isInfo: false, // Ensure it gets scheduled
+          });
+        }
+      }
+
+      // Inject "Post Trip Feedback" Notification (Lever A)
+      const tzDiffHours = Math.abs(calculateTimezoneDiff(trip.from, trip.to, trip.departDate, trip.fromTz, trip.toTz));
+      if (jetLagPlan.strategy !== 'stay_home' && !jetLagPlan.suppressAdjustPhase && tzDiffHours >= 4 && jetLagPlan.phases.adjust?.endDate) {
+        // Schedule for next day at 10 AM local time after adjust phase ends
+        const feedbackTime = moment.tz(jetLagPlan.phases.adjust.endDate, destTz).add(1, 'day').hour(10).minute(0);
+
+        if (feedbackTime.isValid()) {
+          allCards.push({
+            id: `post-trip-feedback-${tripIndex}`,
+            title: `Trip Complete: Travel Style`,
+            time: 'How quickly did you recover? Tap to update your preference profile.',
+            dateTime: feedbackTime.toISOString(),
+            fullDateTime: feedbackTime,
+            planName: activePlanName,
+            destination: trip.to,
+            phase: 'adjust',
+            isInfo: false,
+          });
+        }
       }
     }
   });
@@ -219,7 +263,12 @@ function getActivePlan(plans: any[]) {
       const lastSegment = trip.segments && trip.segments.length > 0
         ? trip.segments[trip.segments.length - 1]
         : trip;
-      const arriveDate = moment(`${lastSegment.arriveDate} ${lastSegment.arriveTime}`, 'YYYY-MM-DD HH:mm');
+
+      const destTz = lastSegment.toTz || trip.toTz;
+      const arriveDateStr = `${lastSegment.arriveDate} ${lastSegment.arriveTime}`;
+      const arriveDate = destTz
+        ? moment.tz(arriveDateStr, 'YYYY-MM-DD HH:mm', destTz)
+        : moment(arriveDateStr, 'YYYY-MM-DD HH:mm');
 
       // Expand window slightly to ensure we capture early prep cards matches TodayView logic (-2 days)
       const prepareStart = departDate.clone().subtract(2, 'days');

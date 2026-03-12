@@ -1,56 +1,25 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { generateJetLagPlan, getDefaultUserSettings, Trip, FlightSegment, Connection } from '../utils/jetLagAlgorithm';
+import { generateJetLagPlan, getDefaultUserSettings } from '../utils/jetLagAlgorithm';
+import type {
+  Trip,
+  FlightSegment,
+  Connection,
+  Card,
+  Phase,
+  JetLagPlan,
+  UserSettings,
+  Plan,
+  HITLSuggestion,
+  OutcomeRating,
+} from '../types/models';
 import moment from 'moment';
 import { startPersistentNotificationUpdater, stopPersistentNotification } from '../utils/notificationScheduler';
-
-
-
-interface Card {
-  id: string;
-  title: string;
-  time: string;
-  icon: string;
-  color: string;
-  why: string;
-  how: string;
-  dateTime?: string;
-  isInfo?: boolean;
-}
-
-interface Phase {
-  name: string;
-  dateRange: string;
-  cards: Card[];
-  durationDays?: number;
-}
-
-interface JetLagPlan {
-  tripId: string;
-  from: string;
-  to: string;
-  departDate: string;
-  phases: {
-    prepare: Phase;
-    travel: Phase;
-    adjust: Phase;
-  };
-}
-
-interface UserSettings {
-  normalBedtime: string;
-  normalWakeTime: string;
-  useMelatonin: boolean;
-  useMagnesium: boolean;
-}
-
-interface Plan {
-  id: string;
-  name: string;
-  trips: Trip[];
-  createdAt: string;
-  jetLagPlans: JetLagPlan[];
-}
+import {
+  getHITLQueue,
+  dismissHITLSuggestion as dismissSuggestionAPI,
+  submitOutcomeRating as submitRatingAPI,
+} from '../utils/preferenceEngine';
 
 interface PlanContextType {
   plans: Plan[];
@@ -65,6 +34,10 @@ interface PlanContextType {
   cardStatuses: Record<string, string>;
   updateCardStatus: (planId: string, cardId: string, status: 'active' | 'done' | 'skipped') => void;
   batchUpdateCardStatuses: (updates: Array<{ planId: string, cardId: string, status: 'active' | 'done' | 'skipped' }>) => void;
+  hitlQueue: HITLSuggestion[];
+  dismissHITLSuggestion: (id: string) => Promise<void>;
+  submitOutcomeRating: (rating: OutcomeRating) => Promise<void>;
+  refreshHITLQueue: () => Promise<void>;
 }
 
 const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -74,15 +47,38 @@ const STORAGE_KEYS = {
   USER_SETTINGS: '@travelbuddy_settings',
 };
 
+// Algorithm version for smart plan regeneration
+// Increment this when the jet lag algorithm logic changes
+const ALGORITHM_VERSION = '1.0.2'; // Fixes short trip adjustment logic (Seattle -> Vancouver)
+
+
+
 export function PlanProvider({ children }: { children: ReactNode }) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [userSettings, setUserSettings] = useState<UserSettings>(getDefaultUserSettings());
   const [cardStatuses, setCardStatuses] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
+  const [hitlQueue, setHitlQueue] = useState<HITLSuggestion[]>([]);
+
+  const refreshHITLQueue = async () => {
+    const queue = await getHITLQueue();
+    setHitlQueue(queue);
+  };
+
+  const dismissHITLSuggestion = async (id: string) => {
+    await dismissSuggestionAPI(id);
+    await refreshHITLQueue();
+  };
+
+  const submitOutcomeRating = async (rating: OutcomeRating) => {
+    await submitRatingAPI(rating, plans);
+    await refreshHITLQueue();
+  };
 
   // Load data on mount
   useEffect(() => {
     loadData();
+    refreshHITLQueue();
   }, []);
 
   // Save plans whenever they change
@@ -124,26 +120,46 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         // 1. Show cached data IMMEDIATELY to unblock UI
         setPlans(parsedPlans);
 
-        // 2. Run heavy algorithm in background
+        // 2. Smart regeneration: Only regenerate if algorithm version changed
         setTimeout(() => {
-          console.log('🔄 Regenerating plans in background...');
+          console.log('🔄 Checking if plans need regeneration...');
           try {
-            const regeneratedPlans = parsedPlans.map((plan: Plan) => ({
-              ...plan,
-              jetLagPlans: plan.trips.map(trip =>
-                generateJetLagPlan(trip, plan.trips, currentSettings)
-              )
-            }));
+            // Check if any plans need regeneration
+            const plansNeedingUpdate = parsedPlans.filter((plan: Plan) =>
+              !plan.algorithmVersion || plan.algorithmVersion !== ALGORITHM_VERSION
+            );
 
-            // Only update if different (optional optimization, but for now just update)
-            setPlans(regeneratedPlans);
-            activePlans = regeneratedPlans; // Update local ref for notifications
-            console.log('✅ Background regeneration complete');
+            if (plansNeedingUpdate.length > 0) {
+              console.log(`📝 Regenerating ${plansNeedingUpdate.length} outdated plan(s)...`);
 
-            // Update notifications with fresh data
-            // Use local parsedStatuses if available, otherwise empty for now (state update might not be ready in closure)
-            const initialStatuses = statusesData ? JSON.parse(statusesData) : {};
-            startPersistentNotificationUpdater(regeneratedPlans, initialStatuses).catch(console.error);
+              const regeneratedPlans = parsedPlans.map((plan: Plan) => {
+                // Only regenerate if version is outdated
+                if (!plan.algorithmVersion || plan.algorithmVersion !== ALGORITHM_VERSION) {
+                  return {
+                    ...plan,
+                    jetLagPlans: plan.trips.map(trip =>
+                      generateJetLagPlan(trip, plan.trips, currentSettings)
+                    ),
+                    algorithmVersion: ALGORITHM_VERSION,
+                  };
+                }
+                // Plan is up to date, return as-is
+                return plan;
+              });
+
+              setPlans(regeneratedPlans);
+              activePlans = regeneratedPlans;
+              console.log('✅ Regeneration complete');
+
+              // Update notifications with fresh data
+              const initialStatuses = statusesData ? JSON.parse(statusesData) : {};
+              startPersistentNotificationUpdater(regeneratedPlans, initialStatuses).catch(console.error);
+            } else {
+              console.log('✅ All plans up to date, skipping regeneration');
+              // Still update notifications with existing data
+              const initialStatuses = statusesData ? JSON.parse(statusesData) : {};
+              startPersistentNotificationUpdater(parsedPlans, initialStatuses).catch(console.error);
+            }
           } catch (regenError) {
             console.error('❌ Background regeneration failed:', regenError);
           }
@@ -257,6 +273,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         trips,
         createdAt: new Date().toISOString(),
         jetLagPlans,
+        algorithmVersion: ALGORITHM_VERSION, // Tag with current version
       };
 
       console.log('📦 New plan object built:', JSON.stringify(newPlan, null, 2));
@@ -316,6 +333,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
             name,
             trips: reconciledTrips,
             jetLagPlans,
+            algorithmVersion: ALGORITHM_VERSION, // Tag with current version
           };
           return updatedPlanObj;
         }
@@ -436,7 +454,11 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       isLoading,
       cardStatuses,
       updateCardStatus,
-      batchUpdateCardStatuses
+      batchUpdateCardStatuses,
+      hitlQueue,
+      dismissHITLSuggestion,
+      submitOutcomeRating,
+      refreshHITLQueue
     }}>
       {children}
     </PlanContext.Provider>

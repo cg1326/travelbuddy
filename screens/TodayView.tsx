@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal, Image } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as StoreReview from 'react-native-store-review';
 import { usePlans } from '../context/PlanContext';
+import { useTheme } from '../context/ThemeContext';
 import moment from 'moment-timezone';
 import Icon from 'react-native-vector-icons/Feather';
 import { ProgressBar } from '../components/ProgressBar';
@@ -18,6 +19,7 @@ import ConfettiCannon from 'react-native-confetti-cannon';
 
 export default function TodayView({ navigation }: any) {
   const { plans, isLoading, cardStatuses } = usePlans();
+  const { colors } = useTheme();
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const [showCelebrationModal, setShowCelebrationModal] = useState(false);
   const [isConfettiActive, setIsConfettiActive] = useState(false);
@@ -103,21 +105,32 @@ export default function TodayView({ navigation }: any) {
   });
 
 
-  // Calculate progress for the current trip (HOISTED for Confetti logic)
+  // Calculate progress across ALL trips in the active plan (not just the current trip)
   let progressRatio = 0;
-  if (activePlan && currentTrip) {
-    const allCards = [
-      ...currentTrip.phases.prepare.cards,
-      ...currentTrip.phases.travel.cards,
-      ...currentTrip.phases.adjust.cards
-    ].filter((c: any) => !c.isInfo);
+  if (activePlan) {
+    let allPlanCards: any[] = [];
 
-    const completedCount = allCards.filter((c: any) => {
+    activePlan.jetLagPlans.forEach((tripPlan: any) => {
+      const includePrepare = tripPlan.strategy !== 'stay_home' && !tripPlan.suppressPreparePhase;
+      const includeAdjust = tripPlan.strategy !== 'stay_home' && !tripPlan.suppressAdjustPhase;
+
+      let phasesCards = [...tripPlan.phases.travel.cards];
+      if (includePrepare && tripPlan.phases.prepare) {
+        phasesCards = [...tripPlan.phases.prepare.cards, ...phasesCards];
+      }
+      if (includeAdjust && tripPlan.phases.adjust) {
+        phasesCards = [...phasesCards, ...tripPlan.phases.adjust.cards];
+      }
+
+      allPlanCards = [...allPlanCards, ...phasesCards.filter((c: any) => !c.isInfo)];
+    });
+
+    const completedCount = allPlanCards.filter((c: any) => {
       const status = cardStatuses[`${activePlan.id}_${c.id}`];
       return status === 'done' || status === 'skipped';
     }).length;
 
-    progressRatio = allCards.length > 0 ? completedCount / allCards.length : 0;
+    progressRatio = allPlanCards.length > 0 ? completedCount / allPlanCards.length : 0;
   }
 
   // Confetti Trigger Logic
@@ -187,10 +200,10 @@ export default function TodayView({ navigation }: any) {
 
   if (!activePlan || !currentTrip) {
     return (
-      <View style={styles.emptyStateContainer}>
+      <View style={[styles.emptyStateContainer, { backgroundColor: colors.bg }]}>
         <View style={styles.emptyStateContent}>
-          <Text style={styles.title}>No Upcoming Trips</Text>
-          <Text style={styles.subtitle}>Get started by creating your first travel plan!</Text>
+          <Text style={[styles.title, { color: colors.text }]}>No Upcoming Trips</Text>
+          <Text style={[styles.subtitle, { color: colors.subtext }]}>Get started by creating your first travel plan!</Text>
 
           <TouchableOpacity
             style={styles.createFirstPlanButton}
@@ -344,7 +357,24 @@ export default function TodayView({ navigation }: any) {
   if (currentPhase === 'travel') {
     // Special handling for travel phase - show actionable cards (not info cards)
     upcomingCards = allCards
-      .filter((card: any) => !card.isInfo && card.title !== 'Your Flight')
+      .filter((card: any) => {
+        if (card.isInfo || card.title === 'Your Flight') return false;
+
+        // Filter out stale cards (> 1 hour ago) if they have a time
+        if (card.dateTime) {
+          const cardTime = moment.tz(card.dateTime, relevantTimezone);
+          const minutesFromNow = cardTime.diff(nowInRelevantCity, 'minutes');
+          if (minutesFromNow < -60) return false;
+        }
+
+        return true;
+      })
+      .sort((a: any, b: any) => {
+        if (!a.dateTime || !b.dateTime) return 0;
+        const timeA = moment.tz(a.dateTime, relevantTimezone);
+        const timeB = moment.tz(b.dateTime, relevantTimezone);
+        return timeA.diff(timeB);
+      })
       .slice(0, 3);
 
   } else {
@@ -366,7 +396,6 @@ export default function TodayView({ navigation }: any) {
       const minutesFromNow = cardTime.diff(nowInRelevantCity, 'minutes');
 
       // Filter out stale cards (> 1 hour ago)
-      // We keep them for 1 hour so the user sees "Sleep ok" for a bit into the sleep, etc.
       if (minutesFromNow < -60) return false;
 
       return true;
@@ -439,6 +468,16 @@ export default function TodayView({ navigation }: any) {
       return { bg: '#1E3A5F', text: '#FFFFFF', label: '#FFFFFF' };
     }
 
+    // Supplements (Melatonin / Magnesium) — CHECK BEFORE sunlight to avoid false match
+    if (title.includes('melatonin') || title.includes('magnesium')) {
+      return { bg: '#F3E5F5', text: '#7B1FA2', label: '#9C27B0' };
+    }
+
+    // Meals (Dinner / Light Meal) — CHECK BEFORE sunlight to avoid 'light meal' matching sunlight
+    if ((title.includes('eat ') || title.startsWith('eat')) || title.includes('dinner') || title.includes('meal')) {
+      return { bg: '#E6F5D0', text: '#3E5C41', label: '#3E5C41' };
+    }
+
     // Sunlight / Light (but not "avoid")
     if ((title.includes("sunlight") || title.includes("light") || title.includes("sun")) && !title.includes("avoid")) {
       return { bg: '#FFF7C5', text: '#000000', label: '#F6CB60' };
@@ -474,6 +513,11 @@ export default function TodayView({ navigation }: any) {
     // Flight cards - CHECK FIRST before other checks
     if (t.includes('flight from') || t.includes('your flight')) {
       return 'send';
+    }
+
+    // Supplements (Melatonin / Magnesium)
+    if (t.includes('melatonin') || t.includes('magnesium')) {
+      return 'package';
     }
 
     // Sleep / Rest / Nap
@@ -593,24 +637,24 @@ export default function TodayView({ navigation }: any) {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      <ScrollView style={styles.container}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <ScrollView style={[styles.container, { backgroundColor: colors.bg }]}>
         {/* Top info panel */}
         <View style={styles.topPanel}>
-          <Text style={styles.topPanelDate}>Today: {(minutesSinceLanding > 0 ? nowInDestination : nowInDepartureCity).format('MMM D, YYYY')}</Text>
-          {statusText && <Text style={styles.topPanelStatus}>{statusText}</Text>}
-          <Text style={styles.topPanelFlight}>{timeUntilFlightText}</Text>
+          <Text style={[styles.topPanelDate, { color: colors.text }]}>Today: {(minutesSinceLanding > 0 ? nowInDestination : nowInDepartureCity).format('MMM D, YYYY')}</Text>
+          {statusText && <Text style={[styles.topPanelStatus, { color: colors.text }]}>{statusText}</Text>}
+          <Text style={[styles.topPanelFlight, { color: colors.text }]}>{timeUntilFlightText}</Text>
         </View>
 
         {/* Flight info card - ONLY show if flight is today or in progress */}
         {showFlightCard && (
-          <View style={styles.flightCard}>
+          <View style={[styles.flightCard, { backgroundColor: colors.surface }]}>
             <View style={styles.flightInfo}>
-              <Text style={styles.flightTitle}>Your Flight</Text>
+              <Text style={[styles.flightTitle, { color: colors.text }]}>Your Flight</Text>
               <Text style={styles.flightTime}>Departs {formatTo12Hour(flightTrip.departTime)}</Text>
-              <Text style={styles.flightRoute}>{flightTrip.from} {'>'} {flightTrip.to}{connectionText}</Text>
+              <Text style={[styles.flightRoute, { color: colors.text }]}>{flightTrip.from} {'>'} {flightTrip.to}{connectionText}</Text>
             </View>
-            <Icon name="send" size={24} color="#000000" />
+            <Icon name="send" size={24} color={colors.text} />
           </View>
         )}
 
@@ -626,7 +670,7 @@ export default function TodayView({ navigation }: any) {
         )}
 
         {/* Coming up label */}
-        <Text style={styles.comingUpLabel}>Coming up...</Text>
+        <Text style={[styles.comingUpLabel, { color: colors.text }]}>Coming up...</Text>
 
         {/* Action cards - only next 0-4 hours, NO Skip/Done buttons */}
         {upcomingCards.length > 0 ? (
@@ -689,9 +733,9 @@ export default function TodayView({ navigation }: any) {
             );
           })
         ) : (
-          <View style={styles.noActionsCard}>
-            <Text style={styles.noActionsText}>No actions in the next 4 hours</Text>
-            <Text style={styles.noActionsSubtext}>Check back later or view your full plan</Text>
+          <View style={[styles.noActionsCard, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.noActionsText, { color: colors.text }]}>No actions in the next 4 hours</Text>
+            <Text style={[styles.noActionsSubtext, { color: colors.subtext }]}>Check back later or view your full plan</Text>
           </View>
         )}
 

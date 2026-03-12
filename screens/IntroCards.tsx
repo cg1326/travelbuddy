@@ -13,6 +13,7 @@ import {
 import { usePlans } from '../context/PlanContext';
 import moment from 'moment-timezone';
 import { CommonActions } from '@react-navigation/native';
+import { Analytics } from '../utils/Analytics';
 
 // INTRO CARD CONFIGURATION
 const SLIDES = [
@@ -119,19 +120,29 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
             connections: []
         };
 
-        await addPlan('Sample Trip', [sampleTrip]);
+        const newPlan = addPlan('Sample Trip', [sampleTrip]);
 
         onFinish();
 
-        // Reset Navigation
-        navigation.dispatch(
-            CommonActions.reset({
-                index: 0,
-                routes: [
-                    { name: 'MainTabs', params: { screen: 'Today' } },
-                ],
-            })
-        );
+        if (newPlan) {
+            // Reset Navigation to Trip Detail
+            navigation.dispatch(
+                CommonActions.reset({
+                    index: 1,
+                    routes: [
+                        { name: 'MainTabs', params: { screen: 'Plans' } }, // Go to tabs first
+                        {
+                            name: 'TripDetail',
+                            params: {
+                                plan: newPlan, // Pass the FULL generated plan
+                                initialTripIndex: 0,
+                                initialPhase: 'prepare'
+                            }
+                        }
+                    ],
+                })
+            );
+        }
 
         setIsCreatingSample(false);
     };
@@ -177,7 +188,7 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
                         {/* GROUP 1: ORANGE BUTTON (High up) */}
                         <View style={[
                             styles.orangeButtonContainer,
-                            { bottom: height > 800 ? 290 : 250 }
+                            { bottom: height > 800 ? 295 : 255 }
                         ]}>
                             <TouchableOpacity
                                 style={[styles.primaryButton, styles.orangeButton]}
@@ -216,7 +227,10 @@ export default function IntroCards({ navigation, onFinish }: { navigation: any, 
     // Pagination Listener
     const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
         if (viewableItems.length > 0) {
-            setCurrentIndex(viewableItems[0].index);
+            const newIndex = viewableItems[0].index;
+            setCurrentIndex(newIndex);
+            // Track intro card progression
+            Analytics.logIntroCardViewed(newIndex, SLIDES.length);
         }
     }).current;
 

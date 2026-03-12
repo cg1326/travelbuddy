@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Modal, TouchableOpacity, StyleSheet } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
+import { useTheme } from '../context/ThemeContext';
 
 interface ConflictModalProps {
     visible: boolean;
@@ -17,6 +18,8 @@ export default function ConflictModal({
     title = 'Connection Conflict',
     message = 'This delay causes your arrival to overlap with your next flight\'s departure.',
 }: ConflictModalProps) {
+    const { colors, isDark } = useTheme();
+
     return (
         <Modal
             transparent
@@ -25,24 +28,24 @@ export default function ConflictModal({
             onRequestClose={onCancel}
         >
             <View style={styles.overlay}>
-                <View style={styles.container}>
-                    <View style={styles.iconContainer}>
+                <View style={[styles.container, { backgroundColor: colors.surface }]}>
+                    <View style={[styles.iconContainer, isDark && { backgroundColor: '#451A03' }]}>
                         <Icon name="alert-triangle" size={32} color="#F59E0B" />
                     </View>
 
-                    <Text style={styles.title}>{title}</Text>
+                    <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
 
-                    <Text style={styles.message}>
+                    <Text style={[styles.message, { color: colors.subtext }]}>
                         {message}
                     </Text>
 
-                    <Text style={styles.question}>
+                    <Text style={[styles.question, { color: colors.text }]}>
                         Do you want to proceed?
                     </Text>
 
                     <View style={styles.buttonContainer}>
-                        <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
-                            <Text style={styles.cancelButtonText}>Cancel</Text>
+                        <TouchableOpacity style={[styles.cancelButton, { backgroundColor: isDark ? '#334155' : '#F1F5F9' }]} onPress={onCancel}>
+                            <Text style={[styles.cancelButtonText, { color: colors.subtext }]}>Cancel</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity style={styles.updateButton} onPress={onUpdateAnyway}>

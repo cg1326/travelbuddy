@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, DimensionValue } from 'react-native';
+import { useTheme } from '../context/ThemeContext';
 
 interface ProgressBarProps {
     progress: number; // 0 to 1
@@ -14,6 +15,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
     color = '#1C5D74', // Default teal brand color
     width = '100%'
 }) => {
+    const { colors } = useTheme();
     // Clamp progress between 0 and 1
     const clampedProgress = Math.max(0, Math.min(1, progress));
     const percentage = Math.round(clampedProgress * 100);
@@ -22,8 +24,8 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
         <View style={[styles.container, { width }]}>
             {label && (
                 <View style={styles.labelContainer}>
-                    <Text style={styles.labelText}>{label}</Text>
-                    <Text style={styles.percentageText}>{percentage}%</Text>
+                    <Text style={[styles.labelText, { color: colors.text }]}>{label}</Text>
+                    <Text style={[styles.percentageText, { color: colors.text }]}>{percentage}%</Text>
                 </View>
             )}
             <View style={styles.track}>

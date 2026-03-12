@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
+import { useTheme } from '../context/ThemeContext';
 
 export default function AddPlanName({ route, navigation }: any) {
   const { mode, existingPlan } = route.params || {};
   const isEditMode = mode === 'edit';
+  const { colors, isDark } = useTheme();
 
   const [planName, setPlanName] = useState(
     isEditMode && existingPlan ? existingPlan.name : ''
@@ -21,7 +23,7 @@ export default function AddPlanName({ route, navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* ────── Custom Header ────── */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -29,30 +31,34 @@ export default function AddPlanName({ route, navigation }: any) {
           style={styles.backButton}
           hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
         >
-          <Icon name="chevron-left" size={28} color="#1E293B" />
+          <Icon name="chevron-left" size={28} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isEditMode ? 'Edit Plan' : 'Create New Plan'}</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{isEditMode ? 'Edit Plan' : 'Create New Plan'}</Text>
         <View style={{ width: 40 }} />
       </View>
 
-      <Text style={styles.title}>Name Your Plan</Text>
+      <Text style={[styles.title, { color: colors.text }]}>Name Your Plan</Text>
 
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <TextInput
-          style={styles.input}
+          style={[styles.input, { color: colors.text, borderColor: colors.border }]}
           placeholder="e.g., Morocco & NYC Trip"
-          placeholderTextColor="#94A3B8"
+          placeholderTextColor={colors.subtext}
           value={planName}
           onChangeText={setPlanName}
         />
       </View>
 
       <TouchableOpacity
-        style={[styles.button, !planName && styles.buttonDisabled]}
+        style={[
+          styles.button,
+          !planName && styles.buttonDisabled,
+          !planName && isDark && { backgroundColor: colors.surface }
+        ]}
         onPress={handleContinue}
         disabled={!planName}
       >
-        <Text style={styles.buttonText}>Continue</Text>
+        <Text style={[styles.buttonText, !planName && isDark && { color: colors.subtext }]}>Continue</Text>
       </TouchableOpacity>
     </View>
   );
@@ -61,7 +67,6 @@ export default function AddPlanName({ route, navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
     padding: 16,
     paddingTop: Platform.OS === 'ios' ? 60 : 20,
   },
@@ -81,18 +86,15 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontFamily: 'Jua',
     fontSize: 18,
-    color: '#1E293B',
     textAlign: 'center',
     flex: 1,
   },
   title: {
     fontFamily: 'Jua',
     fontSize: 18,
-    color: '#1E293B',
     marginBottom: 12,
   },
   card: {
-    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 4,
     marginBottom: 24,
@@ -101,15 +103,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
+    borderWidth: 1,
   },
   input: {
     fontFamily: 'Jua',
     borderWidth: 1,
-    borderColor: '#E5E7EB',
     borderRadius: 8,
     padding: 16,
     fontSize: 16,
-    color: '#1E293B',
   },
   button: {
     backgroundColor: '#1F4259',

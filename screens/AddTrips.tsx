@@ -21,6 +21,8 @@ import Icon from 'react-native-vector-icons/Feather';
 
 import { LEGACY_CITY_TIMEZONES, airportMappings, getCityTimezone, findCityUniversal, findCityByIATA } from '../utils/jetLagAlgorithm';
 import { usePlans } from '../context/PlanContext';
+import { Analytics } from '../utils/Analytics';
+import { useTheme } from '../context/ThemeContext';
 
 // Valid cities from jetLagAlgorithm.ts (Legacy list for autocomplete/fuzzy match)
 // const VALID_CITIES = Object.keys(LEGACY_CITY_TIMEZONES);
@@ -270,21 +272,23 @@ export default function AddTrips({ route, navigation }: any) {
   const { planName, mode, existingPlanId } = route.params || {};
   const isEditMode = mode === 'edit';
   const { plans } = usePlans(); // Import from context
+  const { colors, isDark } = useTheme();
 
   // Fetch existing plan from context if editing
   const existingPlan = isEditMode && existingPlanId
     ? plans.find(p => p.id === existingPlanId)
     : null;
 
-
-
-  // Mode selection
+  // Custom slide animation for the Import Modal to allow slower closing speeds
+  const [renderImportModal, setRenderImportModal] = useState(false);
+  const importSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;  // Mode selection
   const [inputMode, setInputMode] = useState<'simple' | 'detailed'>('simple');
 
   // Current segment being built
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [fromTz, setFromTz] = useState<string | undefined>(undefined);
+
   const [toTz, setToTz] = useState<string | undefined>(undefined);
   const [departDate, setDepartDate] = useState('');
   const [departTime, setDepartTime] = useState('');
@@ -393,45 +397,60 @@ export default function AddTrips({ route, navigation }: any) {
   const [showImportDatePicker, setShowImportDatePicker] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
+
+  // Animation value for the new dim backdrop overlay for Import Modals
+  const importBackdropAnim = React.useRef(new Animated.Value(0)).current;
   const [flightErrorMsg, setFlightErrorMsg] = useState<string | null>(null);
   const [flightOptions, setFlightOptions] = useState<any[]>([]);
   const [showFlightSelection, setShowFlightSelection] = useState(false);
 
-  // Animation for Error Overlay
-  const errorOpacity = React.useRef(new Animated.Value(0)).current;
-  const errorSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
-  const [displayedError, setDisplayedError] = useState<string | null>(null);
+  // importBackdropAnim powers the dim overlay behind the Import modal and Flight Selection modal
 
+  // Hook for the new Error Modal internal slider
+  const errorModalSlideAnim = React.useRef(new Animated.Value(Dimensions.get('window').height)).current;
   useEffect(() => {
     if (flightErrorMsg) {
-      setDisplayedError(flightErrorMsg);
-      Animated.parallel([
-        Animated.timing(errorOpacity, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(errorSlideAnim, {
-          toValue: 0,
-          duration: 250,
-          useNativeDriver: true,
-        })
-      ]).start();
+      Animated.timing(errorModalSlideAnim, {
+        toValue: 0,
+        duration: 350,
+        useNativeDriver: true,
+      }).start();
     } else {
-      Animated.parallel([
-        Animated.timing(errorOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.timing(errorSlideAnim, {
-          toValue: Dimensions.get('window').height,
-          duration: 250,
-          useNativeDriver: true,
-        })
-      ]).start(() => setDisplayedError(null));
+      Animated.timing(errorModalSlideAnim, {
+        toValue: Dimensions.get('window').height,
+        duration: 350,
+        useNativeDriver: true,
+      }).start();
     }
-  }, [flightErrorMsg]);
+  }, [flightErrorMsg, errorModalSlideAnim]);
+
+  // Hook to fade in the dark backdrop and slide in the Custom Import modal
+  useEffect(() => {
+    Animated.timing(importBackdropAnim, {
+      toValue: showImportModal || showFlightSelection ? 1 : 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+
+    // Drive the custom slide animation for the Import Modal
+    if (showImportModal) {
+      setRenderImportModal(true);
+      Animated.timing(importSlideAnim, {
+        toValue: 0,
+        duration: 350,   // Fast slide up (normal)
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(importSlideAnim, {
+        toValue: Dimensions.get('window').height,
+        duration: 550,   // SLOWER slide down! (User requested)
+        useNativeDriver: true,
+      }).start(() => {
+        setRenderImportModal(false);
+      });
+    }
+
+  }, [showImportModal, showFlightSelection]);
 
 
   // Helper: Map IATA code to user's preferred city name
@@ -481,15 +500,10 @@ export default function AddTrips({ route, navigation }: any) {
       // We want to preserve these exact values without ANY timezone conversion
       const parseDateTime = (isoString: string) => {
         if (!isoString) return null;
-        console.log('DEBUG: Parsing time string:', isoString);
         // Extract date and time directly from the string without timezone parsing
         // Format: "2026-02-17T15:00:00" or "2026-02-17 15:00:00" -> date: "2026-02-17", time: "15:00"
         const match = isoString.match(/^(\d{4}-\d{2}-\d{2})[\sT](\d{2}:\d{2})/);
-        if (!match) {
-          console.log('DEBUG: Regex did not match!');
-          return null;
-        }
-        console.log('DEBUG: Extracted date:', match[1], 'time:', match[2]);
+        if (!match) return null;
         return {
           date: match[1],
           time: match[2]
@@ -499,12 +513,10 @@ export default function AddTrips({ route, navigation }: any) {
       const dep = parseDateTime(flightData.departure.time);
       const arr = parseDateTime(flightData.arrival.time);
 
-      console.log('DEBUG: Parsed departure:', dep);
-      console.log('DEBUG: Parsed arrival:', arr);
-
       if (dep) {
         setDepartDate(dep.date);
         setDepartTime(dep.time);
+        if (flightData.departure.timezone) setFromTz(flightData.departure.timezone);
         setSelectedDepartDate(moment(flightData.departure.time).toDate());
         setSelectedDepartTime(moment(flightData.departure.time).toDate());
       }
@@ -512,6 +524,7 @@ export default function AddTrips({ route, navigation }: any) {
       if (arr) {
         setArriveDate(arr.date);
         setArriveTime(arr.time);
+        if (flightData.arrival.timezone) setToTz(flightData.arrival.timezone);
         setSelectedArriveDate(moment(flightData.arrival.time).toDate());
         setSelectedArriveTime(moment(flightData.arrival.time).toDate());
       }
@@ -531,34 +544,37 @@ export default function AddTrips({ route, navigation }: any) {
       return;
     }
 
+    // Track flight import attempt
+    Analytics.logFlightImportAttempt('api');
+
     setIsImporting(true);
     try {
       // FIX: Use local date formatting (YYYY-MM-DD) instead of UTC (toISOString)
       // to avoid date shifting (e.g. Jan 17 9PM -> Jan 18 2AM UTC)
       const formattedDate = moment(importDate).format('YYYY-MM-DD');
-      console.log(`DEBUG: Requesting Flight: ${importFlightNum} on Date: ${formattedDate}`);
       const result = await require('../utils/FlightService').lookupFlight(importFlightNum, formattedDate);
-      console.log('DEBUG: Flight Result:', JSON.stringify(result, null, 2));
 
-      // Check if multiple flights were returned (same flight number, different routes)
-      console.log('DEBUG: Checking multiple flights:', {
-        hasMultiple: result.multiple,
-        hasFlights: !!result.flights,
-        flightsLength: result.flights?.length,
-        condition: result.multiple && result.flights && result.flights.length > 1
-      });
+      if (result.error) {
+        throw new Error(result.error);
+      }
 
       if (result.multiple && result.flights && result.flights.length > 1) {
-        console.log('DEBUG: Setting flight selection modal to visible');
         setIsImporting(false);
         setShowImportModal(false);
         setFlightOptions(result.flights);
-        setShowFlightSelection(true);
+        setTimeout(() => setShowFlightSelection(true), 600);
+        // Track that user got multiple options
+        Analytics.logFlightImportSuccess(true);
         return;
       }
 
       // Single flight or already selected - proceed with import
       const flightData = result.multiple ? result.flights[0] : result;
+
+      // Handle cases where the API returns success, but the payload has no flight data
+      if (!flightData || !flightData.departure || !flightData.arrival) {
+        throw new Error("Flight not found");
+      }
 
       // Store error message if data is incomplete (will show AFTER form populates)
       let pendingError: string | null = null;
@@ -580,7 +596,8 @@ export default function AddTrips({ route, navigation }: any) {
       // Format: "2026-02-17 15:00-05:00" -> date: "2026-02-17", time: "15:00"
       const parseDateTime = (isoString: string) => {
         if (!isoString) return null;
-        const match = isoString.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/);
+        // Support both space and T separator (ISO 8601 and API variants)
+        const match = isoString.match(/^(\d{4}-\d{2}-\d{2})[\sT](\d{2}:\d{2})/);
         if (!match) return null;
         return {
           date: match[1],
@@ -622,25 +639,45 @@ export default function AddTrips({ route, navigation }: any) {
       setShowImportModal(false);
       setIsImporting(false);
 
+      // Track successful import (single flight)
+      Analytics.logFlightImportSuccess(false);
+
       // Show error AFTER modal closes and form populates
       if (pendingError) {
-        setTimeout(() => setFlightErrorMsg(pendingError), 300);
+        setTimeout(() => setFlightErrorMsg(pendingError), 600);
+        // Track partial success (flight found but missing time data)
+        Analytics.logFlightImportError('no_time_data');
       }
 
     } catch (err: any) {
       setIsImporting(false);
+      setShowImportModal(false);
 
       let errorMsg = "Please check your flight number and date and try again.";
+      let errorType = 'unknown';
+
+      const safeErrorMsg = err?.message || String(err) || "";
+
       // Check for common error keywords from backend
-      if (err.message.includes("Flight not found") || err.message.includes("404")) {
+      if (safeErrorMsg.includes("Flight not found") || safeErrorMsg.includes("404")) {
         errorMsg = "We couldn't find that flight. Double check the date or enter details manually.";
-      } else if (err.message.includes("403") || err.message.includes("status code 403")) {
+        errorType = 'not_found';
+      } else if (safeErrorMsg.includes("403") || safeErrorMsg.includes("status code 403")) {
         errorMsg = "Permission denied/403. Run the permission command.";
-      } else if (err.message.includes("Provider error") || err.message.includes("500")) {
+        errorType = '403';
+      } else if (safeErrorMsg.includes("timed out")) {
+        errorMsg = "The flight database is taking too long to respond. Please try again later or enter details manually.";
+        errorType = 'timeout';
+      } else if (safeErrorMsg.includes("Provider error") || safeErrorMsg.includes("500")) {
         errorMsg = "Service is temporarily unavailable (Provider Error). Please enter details manually.";
+        errorType = 'api_error';
       }
 
-      setFlightErrorMsg(errorMsg);
+      // Track flight import error
+      Analytics.logFlightImportError(errorType);
+      Analytics.logApiError('flight_lookup', errorType);
+
+      setTimeout(() => setFlightErrorMsg(errorMsg), 600);
     } finally {
       setIsImporting(false);
     }
@@ -672,6 +709,8 @@ export default function AddTrips({ route, navigation }: any) {
       const fromMatch = findClosestCity(from);
       if (!fromMatch) {
         setFromError(`"${from}" not recognized. Try: ${validCities.slice(0, 3).join(', ')}...`);
+        // Track validation error
+        Analytics.logValidationError('departure_city', 'city_not_found');
       } else if (fromMatch !== from) {
         // Auto-fill the corrected city name (handles IATA codes, case differences, etc.)
         setFrom(fromMatch);
@@ -685,6 +724,8 @@ export default function AddTrips({ route, navigation }: any) {
       const toMatch = findClosestCity(to);
       if (!toMatch) {
         setToError(`"${to}" not recognized. Try: ${validCities.slice(0, 3).join(', ')}...`);
+        // Track validation error
+        Analytics.logValidationError('arrival_city', 'city_not_found');
       } else if (toMatch !== to) {
         // Auto-fill the corrected city name (handles IATA codes, case differences, etc.)
         setTo(toMatch);
@@ -701,7 +742,8 @@ export default function AddTrips({ route, navigation }: any) {
     if (date) {
       const newDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
       setSelectedDepartDate(newDate);
-      const formattedDate = newDate.toISOString().split('T')[0];
+      // FIX: Use moment to format locally to avoid UTC conversion shifts (e.g. EST -> UTC works, but JST -> UTC shifts back a day)
+      const formattedDate = moment(newDate).format('YYYY-MM-DD');
       setDepartDate(formattedDate);
 
       // Validate arrival is after departure
@@ -741,7 +783,7 @@ export default function AddTrips({ route, navigation }: any) {
     if (date) {
       const newDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
       setSelectedArriveDate(newDate);
-      const formattedDate = newDate.toISOString().split('T')[0];
+      const formattedDate = moment(newDate).format('YYYY-MM-DD');
       setArriveDate(formattedDate);
 
       // Validate if we have all info
@@ -793,8 +835,13 @@ export default function AddTrips({ route, navigation }: any) {
 
     if (fromMatch && toMatch && fromMatch === toMatch) {
       setToError('Departure and arrival cities cannot be the same');
+      // Track validation error
+      Analytics.logValidationError('cities', 'same_city');
       return;
     }
+
+    // Track manual flight entry
+    Analytics.logFlightImportAttempt('manual');
 
 
     // Resolve airport codes
@@ -1356,7 +1403,20 @@ export default function AddTrips({ route, navigation }: any) {
 
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
+      {/* ────── Backdrop overlay for Import/Selection Modal ────── */}
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            opacity: importBackdropAnim,
+            zIndex: 50
+          }
+        ]}
+        pointerEvents={(showImportModal || showFlightSelection) ? 'auto' : 'none'}
+      />
+
       {/* ────── Custom Header ────── */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -1364,9 +1424,9 @@ export default function AddTrips({ route, navigation }: any) {
           style={styles.backButton}
           hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
         >
-          <Icon name="chevron-left" size={28} color="#1E293B" />
+          <Icon name="chevron-left" size={28} color={colors.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isEditMode ? 'Edit Flights' : 'Add Flights'}</Text>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>{isEditMode ? 'Edit Flights' : 'Add Flights'}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -1375,7 +1435,7 @@ export default function AddTrips({ route, navigation }: any) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.subtitle}>Choose how to add your flights</Text>
+        <Text style={[styles.subtitle, { color: colors.subtext }]}>Choose how to add your flights</Text>
 
         {/* Mode selector */}
         <View style={styles.modeSelector}>
@@ -1415,21 +1475,21 @@ export default function AddTrips({ route, navigation }: any) {
           </TouchableOpacity>
         </View>
 
-        {/* Added Trips Section - MOVED TO TOP FOR EDIT MODE */}
-        {isEditMode && completedTrips.length > 0 && (
+        {/* Added Trips Section - MOVED TO TOP ALWAYs */}
+        {completedTrips.length > 0 && (
           <View style={{ marginBottom: 16 }}>
-            <Text style={styles.sectionTitle}>Added Trips:</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Added Trips:</Text>
             {completedTrips.map(trip => (
-              <View key={trip.id} style={styles.tripCard}>
+              <View key={trip.id} style={[styles.tripCard, { backgroundColor: colors.surface }]}>
                 <View style={styles.tripInfo}>
-                  <Text style={styles.tripRoute}>{trip.from} {'>'} {trip.to}</Text>
-                  <Text style={styles.tripDetail}>
+                  <Text style={[styles.tripRoute, { color: colors.text }]}>{trip.from} {'>'} {trip.to}</Text>
+                  <Text style={[styles.tripDetail, { color: colors.subtext }]}>
                     {trip.hasConnections ? `${trip.segments.length} segments` : 'Direct flight'}
                   </Text>
-                  <Text style={styles.tripDetail}>
+                  <Text style={[styles.tripDetail, { color: colors.subtext }]}>
                     Departs: {moment(trip.departDate).format('MM/DD/YYYY')} {moment(trip.departTime, 'HH:mm').format('h:mm A')}
                   </Text>
-                  <Text style={styles.tripDetail}>
+                  <Text style={[styles.tripDetail, { color: colors.subtext }]}>
                     Arrives: {moment(trip.arriveDate).format('MM/DD/YYYY')} {moment(trip.arriveTime, 'HH:mm').format('h:mm A')}
                   </Text>
                 </View>
@@ -1454,20 +1514,20 @@ export default function AddTrips({ route, navigation }: any) {
 
         {/* Current trip in progress (detailed mode only) */}
         {inputMode === 'detailed' && currentTripSegments.length > 0 && (
-          <View style={styles.currentTripContainer}>
-            <Text style={styles.sectionTitle}>Current Trip:</Text>
+          <View style={[styles.currentTripContainer, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Current Trip:</Text>
             {currentTripSegments.map((seg, index) => (
               <View key={index}>
-                <View style={styles.segmentCard}>
+                <View style={[styles.segmentCard, { backgroundColor: colors.bg }]}>
                   <View style={styles.segmentInfo}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      <Icon name="send" size={16} color="#446084" style={{ marginRight: 6 }} />
-                      <Text style={styles.segmentRoute}>{seg.from} {'>'} {seg.to}</Text>
+                      <Icon name="send" size={16} color={colors.subtext} style={{ marginRight: 6 }} />
+                      <Text style={[styles.segmentRoute, { color: colors.text }]}>{seg.from} {'>'} {seg.to}</Text>
                     </View>
-                    <Text style={styles.segmentTime}>
+                    <Text style={[styles.segmentTime, { color: colors.subtext }]}>
                       Depart: {moment(seg.departDate).format('MM/DD/YYYY')} {moment(seg.departTime, 'HH:mm').format('h:mm A')}
                     </Text>
-                    <Text style={styles.segmentTime}>
+                    <Text style={[styles.segmentTime, { color: colors.subtext }]}>
                       Arrive: {moment(seg.arriveDate).format('MM/DD/YYYY')} {moment(seg.arriveTime, 'HH:mm').format('h:mm A')}
                     </Text>
                   </View>
@@ -1489,10 +1549,10 @@ export default function AddTrips({ route, navigation }: any) {
 
                 {/* Insert After button */}
                 <TouchableOpacity
-                  style={styles.insertAfterButton}
+                  style={[styles.insertAfterButton, { backgroundColor: isDark ? '#B45309' : '#FCD34D' }]}
                   onPress={() => insertSegmentAfter(index)}
                 >
-                  <Text style={styles.insertAfterButtonText}>+ Insert Segment After</Text>
+                  <Text style={[styles.insertAfterButtonText, { color: isDark ? '#FEF3C7' : '#78350F' }]}>+ Insert Segment After</Text>
                 </TouchableOpacity>
               </View>
             ))}
@@ -1500,8 +1560,8 @@ export default function AddTrips({ route, navigation }: any) {
         )}
 
         {/* Add flight form */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>
+        <View style={[styles.card, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>
             {inputMode === 'simple'
               ? 'Direct Flight Details'
               : currentTripSegments.length === 0
@@ -1518,9 +1578,9 @@ export default function AddTrips({ route, navigation }: any) {
             <Text style={styles.importButtonText}>Auto-fill from Flight #</Text>
           </TouchableOpacity>
 
-          <Text style={styles.label}>From</Text>
+          <Text style={[styles.label, { color: colors.text }]}>From</Text>
           <TextInput
-            style={[styles.input, fromError && styles.inputError]}
+            style={[styles.input, fromError && styles.inputError, { color: colors.text, borderColor: colors.border }]}
             placeholder="e.g., New York or JFK"
             placeholderTextColor="#94A3B8"
             value={from}
@@ -1532,9 +1592,9 @@ export default function AddTrips({ route, navigation }: any) {
           />
           {fromError ? <Text style={styles.errorText}>{fromError}</Text> : null}
 
-          <Text style={styles.label}>To</Text>
+          <Text style={[styles.label, { color: colors.text }]}>To</Text>
           <TextInput
-            style={[styles.input, toError && styles.inputError]}
+            style={[styles.input, toError && styles.inputError, { color: colors.text, borderColor: colors.border }]}
             placeholder="e.g., London or LHR"
             placeholderTextColor="#94A3B8"
             value={to}
@@ -1546,9 +1606,9 @@ export default function AddTrips({ route, navigation }: any) {
           />
           {toError ? <Text style={styles.errorText}>{toError}</Text> : null}
 
-          <Text style={styles.label}>Departure Date</Text>
-          <View style={styles.dateTimeDisplay}>
-            <Text style={[styles.dateTimeText, !departDate && styles.placeholderText]}>
+          <Text style={[styles.label, { color: colors.text }]}>Departure Date</Text>
+          <View style={[styles.dateTimeDisplay, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.dateTimeText, !departDate && styles.placeholderText, { color: !departDate ? colors.subtext : colors.text }]}>
               {departDate ? moment(departDate).format('MMM D, YYYY') : 'Not selected'}
             </Text>
             <TouchableOpacity
@@ -1571,9 +1631,9 @@ export default function AddTrips({ route, navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>Departure Time</Text>
-          <View style={styles.dateTimeDisplay}>
-            <Text style={[styles.dateTimeText, !departTime && styles.placeholderText]}>
+          <Text style={[styles.label, { color: colors.text }]}>Departure Time</Text>
+          <View style={[styles.dateTimeDisplay, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.dateTimeText, !departTime && styles.placeholderText, { color: !departTime ? colors.subtext : colors.text }]}>
               {departTime ? moment(departTime, 'HH:mm').format('h:mm A') : 'Not selected'}
             </Text>
             <TouchableOpacity
@@ -1594,9 +1654,9 @@ export default function AddTrips({ route, navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>Arrival Date</Text>
-          <View style={styles.dateTimeDisplay}>
-            <Text style={[styles.dateTimeText, !arriveDate && styles.placeholderText]}>
+          <Text style={[styles.label, { color: colors.text }]}>Arrival Date</Text>
+          <View style={[styles.dateTimeDisplay, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.dateTimeText, !arriveDate && styles.placeholderText, { color: !arriveDate ? colors.subtext : colors.text }]}>
               {arriveDate ? moment(arriveDate).format('MMM D, YYYY') : 'Not selected'}
             </Text>
             <TouchableOpacity
@@ -1620,9 +1680,9 @@ export default function AddTrips({ route, navigation }: any) {
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>Arrival Time</Text>
-          <View style={styles.dateTimeDisplay}>
-            <Text style={[styles.dateTimeText, !arriveTime && styles.placeholderText]}>
+          <Text style={[styles.label, { color: colors.text }]}>Arrival Time</Text>
+          <View style={[styles.dateTimeDisplay, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.dateTimeText, !arriveTime && styles.placeholderText, { color: !arriveTime ? colors.subtext : colors.text }]}>
               {arriveTime ? moment(arriveTime, 'HH:mm').format('h:mm A') : 'Not selected'}
             </Text>
             <TouchableOpacity
@@ -1732,45 +1792,11 @@ export default function AddTrips({ route, navigation }: any) {
           </TouchableOpacity>
         )}
 
-        {/* Completed trips */}
+        {/* Continue Button (Bottom) */}
         {completedTrips.length > 0 && (
-          <>
-            {!isEditMode && (
-              <>
-                <Text style={styles.sectionTitle}>Added Trips:</Text>
-                {completedTrips.map(trip => (
-                  <View key={trip.id} style={styles.tripCard}>
-                    <View style={styles.tripInfo}>
-                      <Text style={styles.tripRoute}>{trip.from} {'>'} {trip.to}</Text>
-                      <Text style={styles.tripDetail}>
-                        {trip.hasConnections ? `${trip.segments.length} segments` : 'Direct flight'}
-                      </Text>
-                      <Text style={styles.tripDetail}>
-                        Departs: {moment(trip.departDate).format('MM/DD/YYYY')} {moment(trip.departTime, 'HH:mm').format('h:mm A')}
-                      </Text>
-                      <Text style={styles.tripDetail}>
-                        Arrives: {moment(trip.arriveDate).format('MM/DD/YYYY')} {moment(trip.arriveTime, 'HH:mm').format('h:mm A')}
-                      </Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-                      <TouchableOpacity
-                        style={{ padding: 4 }}
-                        onPress={() => editTrip(trip)}
-                      >
-                        <Icon name="edit" size={20} color="#00DDD9" />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => deleteTrip(trip.id)}>
-                        <Icon name="x" size={20} color="#EF4444" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))}
-              </>
-            )}
-            <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-              <Text style={styles.buttonText}>Continue to Review</Text>
-            </TouchableOpacity>
-          </>
+          <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
+            <Text style={styles.buttonText}>Continue to Review</Text>
+          </TouchableOpacity>
         )}
 
         <View style={styles.spacer} />
@@ -1784,14 +1810,14 @@ export default function AddTrips({ route, navigation }: any) {
               animationType="slide"
             >
               <View style={styles.modalOverlay}>
-                <View style={styles.modalContent}>
+                <View style={[styles.modalContent, { backgroundColor: isDark ? '#334155' : colors.surface, borderTopWidth: isDark ? 1 : 0, borderColor: '#475569', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: isDark ? 0.3 : 0, shadowRadius: 8, elevation: isDark ? 10 : 0 }]}>
                   <DateTimePicker
                     value={selectedDepartDate}
                     mode="date"
                     display="spinner"
                     onChange={onDepartDateChange}
-                    textColor="#1E293B"
-                    themeVariant="light"
+                    textColor={isDark ? "white" : "#1E293B"}
+                    themeVariant={isDark ? "dark" : "light"}
                   />
                   <TouchableOpacity style={styles.modalDoneButton} onPress={confirmDepartDate}>
                     <Text style={styles.modalDoneButtonText}>Done</Text>
@@ -1806,14 +1832,14 @@ export default function AddTrips({ route, navigation }: any) {
               animationType="slide"
             >
               <View style={styles.modalOverlay}>
-                <View style={styles.modalContent}>
+                <View style={[styles.modalContent, { backgroundColor: isDark ? '#334155' : colors.surface, borderTopWidth: isDark ? 1 : 0, borderColor: '#475569', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: isDark ? 0.3 : 0, shadowRadius: 8, elevation: isDark ? 10 : 0 }]}>
                   <DateTimePicker
                     value={selectedDepartTime}
                     mode="time"
                     display="spinner"
                     onChange={onDepartTimeChange}
-                    textColor="#1E293B"
-                    themeVariant="light"
+                    textColor={isDark ? "white" : "#1E293B"}
+                    themeVariant={isDark ? "dark" : "light"}
                   />
                   <TouchableOpacity style={styles.modalDoneButton} onPress={confirmDepartTime}>
                     <Text style={styles.modalDoneButtonText}>Done</Text>
@@ -1828,14 +1854,14 @@ export default function AddTrips({ route, navigation }: any) {
               animationType="slide"
             >
               <View style={styles.modalOverlay}>
-                <View style={styles.modalContent}>
+                <View style={[styles.modalContent, { backgroundColor: isDark ? '#334155' : colors.surface, borderTopWidth: isDark ? 1 : 0, borderColor: '#475569', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: isDark ? 0.3 : 0, shadowRadius: 8, elevation: isDark ? 10 : 0 }]}>
                   <DateTimePicker
                     value={selectedArriveDate}
                     mode="date"
                     display="spinner"
                     onChange={onArriveDateChange}
-                    textColor="#1E293B"
-                    themeVariant="light"
+                    textColor={isDark ? "white" : "#1E293B"}
+                    themeVariant={isDark ? "dark" : "light"}
                   />
                   <TouchableOpacity style={styles.modalDoneButton} onPress={confirmArriveDate}>
                     <Text style={styles.modalDoneButtonText}>Done</Text>
@@ -1850,14 +1876,14 @@ export default function AddTrips({ route, navigation }: any) {
               animationType="slide"
             >
               <View style={styles.modalOverlay}>
-                <View style={styles.modalContent}>
+                <View style={[styles.modalContent, { backgroundColor: isDark ? '#334155' : colors.surface, borderTopWidth: isDark ? 1 : 0, borderColor: '#475569', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: isDark ? 0.3 : 0, shadowRadius: 8, elevation: isDark ? 10 : 0 }]}>
                   <DateTimePicker
                     value={selectedArriveTime}
                     mode="time"
                     display="spinner"
                     onChange={onArriveTimeChange}
-                    textColor="#1E293B"
-                    themeVariant="light"
+                    textColor={isDark ? "white" : "#1E293B"}
+                    themeVariant={isDark ? "dark" : "light"}
                   />
                   <TouchableOpacity style={styles.modalDoneButton} onPress={confirmArriveTime}>
                     <Text style={styles.modalDoneButtonText}>Done</Text>
@@ -1871,33 +1897,34 @@ export default function AddTrips({ route, navigation }: any) {
 
       {/* Import Flight Modal */}
       <Modal
-        visible={showImportModal}
+        visible={renderImportModal}
         transparent={true}
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => setShowImportModal(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'position' : 'height'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
           style={styles.modalOverlay}
+          contentContainerStyle={{ flex: 1, justifyContent: 'flex-end' }}
         >
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Import Flight</Text>
-            <Text style={styles.modalSubtitle}>Enter your flight details to auto-fill.</Text>
+          <Animated.View style={[styles.modalContent, { transform: [{ translateY: importSlideAnim }], backgroundColor: isDark ? '#334155' : colors.surface, borderTopWidth: isDark ? 1 : 0, borderColor: '#475569', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: isDark ? 0.3 : 0, shadowRadius: 8, elevation: isDark ? 10 : 0 }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Import Flight</Text>
+            <Text style={[styles.modalSubtitle, { color: colors.subtext }]}>Enter your flight details to auto-fill.</Text>
 
-            <Text style={styles.label}>Flight Number</Text>
+            <Text style={[styles.label, { color: colors.subtext }]}>Flight Number</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { color: colors.text, borderColor: isDark ? '#475569' : '#E5E7EB', backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}
               placeholder="e.g. UA 261"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={colors.subtext}
               value={importFlightNum}
               onChangeText={setImportFlightNum}
               autoCapitalize="characters"
             />
 
-            <Text style={styles.label}>Date of Flight</Text>
+            <Text style={[styles.label, { color: colors.subtext }]}>Date of Flight</Text>
             <TouchableOpacity
-              style={styles.dateTimeDisplay}
+              style={[styles.dateTimeDisplay, { borderColor: isDark ? '#475569' : '#E5E7EB', backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}
               onPress={() => {
                 Keyboard.dismiss();
                 setTimeout(() => {
@@ -1905,18 +1932,21 @@ export default function AddTrips({ route, navigation }: any) {
                 }, 100);
               }}
             >
-              <Text style={styles.dateTimeText}>
+              <Text style={[styles.dateTimeText, { color: colors.text }]}>
                 {moment(importDate).format('MMM D, YYYY')}
               </Text>
-              <Icon name="calendar" size={20} color="#64748B" style={{ marginLeft: 8 }} />
+              <Icon name="calendar" size={20} color={colors.subtext} style={{ marginLeft: 8 }} />
             </TouchableOpacity>
 
             <View style={{ flexDirection: 'row', gap: 12, marginTop: 24 }}>
               <TouchableOpacity
-                style={[styles.modeButton, { backgroundColor: '#F3F4F6', borderWidth: 0 }]}
-                onPress={() => setShowImportModal(false)}
+                style={[styles.modeButton, { backgroundColor: isDark ? '#475569' : '#F3F4F6', borderWidth: 0 }]}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setShowImportModal(false);
+                }}
               >
-                <Text style={styles.modeButtonText}>Cancel</Text>
+                <Text style={[styles.modeButtonText, { color: isDark ? '#F1F5F9' : '#64748B' }]}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -1941,10 +1971,10 @@ export default function AddTrips({ route, navigation }: any) {
                 onRequestClose={() => setShowImportDatePicker(false)}
               >
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' }}>
-                  <View style={{ backgroundColor: 'white', borderRadius: 16, padding: 16, width: '90%', shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 }}>
+                  <View style={{ backgroundColor: isDark ? '#334155' : colors.surface, borderRadius: 16, padding: 16, width: '90%', shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0.3 : 0, shadowRadius: 8, elevation: isDark ? 10 : 0, borderWidth: isDark ? 1 : 0, borderColor: '#475569' }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 }}>
                       <TouchableOpacity onPress={() => setShowImportDatePicker(false)} style={{ padding: 4 }}>
-                        <Text style={{ fontFamily: 'Jua', color: '#0D4C4A', fontSize: 16 }}>Done</Text>
+                        <Text style={{ fontFamily: 'Jua', color: colors.text, fontSize: 16 }}>Done</Text>
                       </TouchableOpacity>
                     </View>
                     <DateTimePicker
@@ -1954,42 +1984,17 @@ export default function AddTrips({ route, navigation }: any) {
                       onChange={(event, date) => {
                         if (date) setImportDate(date);
                       }}
-                      textColor="#1E293B"
-                      accentColor="#0D4C4A"
-                      themeVariant="light"
+                      textColor={isDark ? "white" : "#1E293B"}
+                      accentColor="#5EDAD9"
+                      themeVariant={isDark ? "dark" : "light"}
                     />
                   </View>
                 </View>
               </Modal>
             )}
-          </View>
+          </Animated.View>
 
-          {/* Error Overlay INSIDE Import Modal - For immediate errors (invalid flight) */}
-          {!!displayedError && showImportModal && (
-            <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]} pointerEvents="box-none">
-              {/* Background - Fades in/out */}
-              <Animated.View style={[StyleSheet.absoluteFill, {
-                backgroundColor: 'rgba(0,0,0,0.5)',
-                opacity: errorOpacity
-              }]} />
 
-              {/* Error Modal - Slides up/down */}
-              <Animated.View style={[styles.modalOverlay, {
-                transform: [{ translateY: errorSlideAnim }]
-              }]}>
-                <View style={styles.modalContent}>
-                  <Text style={[styles.modalTitle, { color: '#EF4444' }]}>Error</Text>
-                  <Text style={[styles.modalSubtitle, { marginBottom: 24 }]}>{displayedError}</Text>
-                  <TouchableOpacity
-                    style={[styles.addDirectButton, { width: '100%', marginTop: 0, backgroundColor: '#EF4444' }]}
-                    onPress={() => setFlightErrorMsg(null)}
-                  >
-                    <Text style={styles.addDirectButtonText}>OK</Text>
-                  </TouchableOpacity>
-                </View>
-              </Animated.View>
-            </View>
-          )}
 
         </KeyboardAvoidingView>
       </Modal>
@@ -2001,9 +2006,9 @@ export default function AddTrips({ route, navigation }: any) {
         animationType="fade"
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>We found your flight!</Text>
-            <Text style={[styles.modalSubtitle, { marginBottom: 24 }]}>{importSuccessMsg}</Text>
+          <View style={[styles.modalContent, { backgroundColor: isDark ? '#334155' : colors.surface, borderTopWidth: isDark ? 1 : 0, borderColor: '#475569', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: isDark ? 0.3 : 0, shadowRadius: 8, elevation: isDark ? 10 : 0 }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>We found your flight!</Text>
+            <Text style={[styles.modalSubtitle, { marginBottom: 24, color: colors.subtext }]}>{importSuccessMsg}</Text>
             <TouchableOpacity
               style={[styles.addDirectButton, { width: '100%', marginTop: 0 }]}
               onPress={() => setImportSuccessMsg(null)}
@@ -2021,9 +2026,9 @@ export default function AddTrips({ route, navigation }: any) {
         animationType="slide"
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { maxHeight: '80%' }]}>
-            <Text style={styles.modalTitle}>Multiple Flights Found</Text>
-            <Text style={[styles.modalSubtitle, { marginBottom: 16 }]}>
+          <View style={[styles.modalContent, { maxHeight: '80%', backgroundColor: isDark ? '#334155' : colors.surface, borderTopWidth: isDark ? 1 : 0, borderColor: '#475569', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: isDark ? 0.3 : 0, shadowRadius: 8, elevation: isDark ? 10 : 0 }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Multiple Flights Found</Text>
+            <Text style={[styles.modalSubtitle, { marginBottom: 16, color: colors.subtext }]}>
               This flight number operates {flightOptions.length} routes on this date.{'\n'}Select yours:
             </Text>
 
@@ -2032,25 +2037,28 @@ export default function AddTrips({ route, navigation }: any) {
                 <TouchableOpacity
                   key={index}
                   style={{
-                    backgroundColor: '#F8FAFC',
+                    backgroundColor: colors.bg,
                     padding: 16,
                     borderRadius: 12,
                     marginBottom: 12,
                     borderWidth: 1,
-                    borderColor: '#E5E7EB'
+                    borderColor: colors.border
                   }}
                   onPress={() => {
                     setShowFlightSelection(false);
                     handleImportFlightWithData(flight);
                   }}
                 >
-                  <Text style={{ fontFamily: 'Jua', fontSize: 18, color: '#0D4C4A', marginBottom: 4 }}>
+                  <Text style={{ fontFamily: 'Jua', fontSize: 18, color: colors.text, marginBottom: 4 }}>
                     {mapIATAToCity(flight.departure.iata)} {'>'} {mapIATAToCity(flight.arrival.iata)}
                   </Text>
-                  <Text style={{ fontFamily: 'Jua', fontSize: 14, color: '#64748B' }}>
-                    Departs {moment(flight.departure.time).tz(flight.departure.timezone).format('h:mm A')}
+                  <Text style={{ fontFamily: 'Jua', fontSize: 14, color: '#64748B', marginBottom: 2 }}>
+                    {moment(flight.departure.time).tz(flight.departure.timezone).format('MMM D')}
                   </Text>
-                  <Text style={{ fontFamily: 'Jua', fontSize: 12, color: '#94A3B8' }}>
+                  <Text style={{ fontFamily: 'Jua', fontSize: 14, color: '#64748B' }}>
+                    {moment(flight.departure.time).tz(flight.departure.timezone).format('h:mm A')} {'>'} {moment(flight.arrival.time).tz(flight.arrival.timezone).format('h:mm A')}
+                  </Text>
+                  <Text style={{ fontFamily: 'Jua', fontSize: 12, color: '#94A3B8', marginTop: 4 }}>
                     {flight.departure.airport} {'>'} {flight.arrival.airport}
                   </Text>
                 </TouchableOpacity>
@@ -2068,34 +2076,30 @@ export default function AddTrips({ route, navigation }: any) {
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
-      {/* Error Overlay OUTSIDE Modal - For delayed errors (missing data after successful import) */}
-      {!!displayedError && !showImportModal && (
-        <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]} pointerEvents="box-none">
-          {/* Background - Fades in/out */}
-          <Animated.View style={[StyleSheet.absoluteFill, {
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            opacity: errorOpacity
-          }]} />
-
-          {/* Error Modal - Slides up/down */}
-          <Animated.View style={[styles.modalOverlay, {
-            transform: [{ translateY: errorSlideAnim }]
-          }]}>
-            <View style={styles.modalContent}>
-              <Text style={[styles.modalTitle, { color: '#EF4444' }]}>Error</Text>
-              <Text style={[styles.modalSubtitle, { marginBottom: 24 }]}>{displayedError}</Text>
-              <TouchableOpacity
-                style={[styles.addDirectButton, { width: '100%', marginTop: 0, backgroundColor: '#EF4444' }]}
-                onPress={() => setFlightErrorMsg(null)}
-              >
-                <Text style={styles.addDirectButtonText}>OK</Text>
-              </TouchableOpacity>
-            </View>
+      </Modal >
+      {/* Error Modal - Refactored to Native Modal for stability */}
+      <Modal
+        visible={!!flightErrorMsg}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setFlightErrorMsg(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <Animated.View style={[styles.modalContent, { transform: [{ translateY: errorModalSlideAnim }], backgroundColor: isDark ? '#334155' : colors.surface, borderTopWidth: isDark ? 1 : 0, borderColor: '#475569', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: isDark ? 0.3 : 0, shadowRadius: 8, elevation: isDark ? 10 : 0 }]}>
+            <Text style={[styles.modalTitle, { color: '#EF4444' }]}>Error</Text>
+            <Text style={[styles.modalSubtitle, { marginBottom: 24, color: colors.subtext }]}>{flightErrorMsg}</Text>
+            <TouchableOpacity
+              style={[styles.addDirectButton, { width: '100%', marginTop: 0, backgroundColor: '#EF4444' }]}
+              onPress={() => {
+                setFlightErrorMsg(null);
+              }}
+            >
+              <Text style={styles.addDirectButtonText}>OK</Text>
+            </TouchableOpacity>
           </Animated.View>
         </View>
-      )}
-    </View>
+      </Modal>
+    </View >
   );
 }
 

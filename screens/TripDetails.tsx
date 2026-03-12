@@ -13,71 +13,21 @@ import {
   StyleProp,
   Alert,
   Modal,
+  LayoutAnimation,
 } from 'react-native';
 import { usePlans } from '../context/PlanContext';
+import { useTheme } from '../context/ThemeContext';
 
 import QuickDelayModal from '../components/QuickDelayModal';
 import ConflictModal from '../components/ConflictModal';
+import OnboardingModal from '../components/OnboardingModal'; // Import OnboardingModal
+import PostTripFeedback from './PostTripFeedback';
 import { getCityTimezone } from '../utils/jetLagAlgorithm';
+import type { Card, Phase, JetLagPlan, Trip } from '../types/models';
 import moment from 'moment-timezone';
 import * as StoreReview from 'react-native-store-review';
 import { Analytics } from '../utils/Analytics'; // Import Analytics
 
-// ───────────────────────────────────────────────
-// Interfaces
-// ───────────────────────────────────────────────
-interface Card {
-  id: string;
-  title: string;
-  time: string;
-  icon: string;
-  why: string;
-  how: string;
-  dateTime?: string;
-  isInfo?: boolean;
-  isDailyRoutine?: boolean;
-}
-
-
-
-interface Phase {
-  name: string;
-  dateRange: string;
-  startDate?: string;
-  endDate?: string;
-  cards: Card[];
-}
-
-interface JetLagPlan {
-  tripId: string;
-  from: string;
-  to: string;
-  departDate: string;
-  phases: {
-    prepare: Phase;
-    travel: Phase;
-    adjust: Phase;
-  };
-  strategy?: 'stay_home' | 'adjust';
-  suppressPreparePhase?: boolean;
-  suppressAdjustPhase?: boolean;
-}
-
-interface Trip {
-  id: string;
-  from: string;
-  to: string;
-  fromTz?: string;
-  toTz?: string;
-  departDate: string;
-  departTime: string;
-  arriveDate: string;
-  arriveTime: string;
-  hasConnections: boolean;
-  segments: any[];
-  connections: any[];
-  arrivalRestStatus?: 'exhausted' | 'ok';
-}
 
 // Helper to determine if we should prompt for exhaustion
 const isWithinArrivalWindow = (trip: Trip): boolean => {
@@ -116,11 +66,13 @@ const getCardLogicalDate = (card: Card, tz: string) => {
 };
 
 export default function TripDetail({ route, navigation }: any) {
-  const { plan: initialPlan, initialTripIndex, initialPhase } = route.params;
-  const { plans, updatePlan, cardStatuses, updateCardStatus, batchUpdateCardStatuses } = usePlans(); // Use global state
+  const { plan: initialPlan, initialTripIndex, initialPhase, initialAction } = route.params;
+  const { plans, updatePlan, cardStatuses, updateCardStatus, batchUpdateCardStatuses, userSettings, updateUserSettings } = usePlans();
+  const { colors, isDark } = useTheme();
+
 
   // DEBUG LOG
-  console.log('[TripDetail] Params:', { initialTripIndex, initialPhase });
+  console.log('[TripDetail] Params:', { initialTripIndex, initialPhase, initialAction });
 
   // Get live plan from context to ensure updates (like exhaustion status) reflect immediately
   const plan = plans.find(p => p.id === initialPlan.id) || initialPlan;
@@ -137,6 +89,35 @@ export default function TripDetail({ route, navigation }: any) {
       setCurrentTripIndex(initialTripIndex);
     }
   }, [initialPhase, initialTripIndex]);
+
+  // FIX: Redirect if activePhase is hidden (e.g. "Prepare" for Stay Home trips) 
+  // This handles cases where a notification might try to open a specific phase that is now hidden,
+  // or if the default 'travel' matches but we want to be sure.
+  React.useEffect(() => {
+    const currentTrip = plan.trips[currentTripIndex];
+    if (!currentTrip) return;
+
+    // Check if current phase is valid
+    let shouldRedirect = false;
+    let targetPhase = activePhase;
+
+    if (activePhase === 'prepare') {
+      if (currentTrip.strategy === 'stay_home' || currentTrip.suppressPreparePhase) {
+        shouldRedirect = true;
+        targetPhase = 'travel';
+      }
+    } else if (activePhase === 'adjust') {
+      if (currentTrip.strategy === 'stay_home' || currentTrip.suppressAdjustPhase) {
+        shouldRedirect = true;
+        targetPhase = 'travel';
+      }
+    }
+
+    if (shouldRedirect) {
+      console.log(`[TripDetail] Redirecting hidden phase ${activePhase} to ${targetPhase}`);
+      setActivePhase(targetPhase);
+    }
+  }, [activePhase, currentTripIndex, plan.trips]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [showExhaustionModal, setShowExhaustionModal] = useState(false);
@@ -148,8 +129,65 @@ export default function TripDetail({ route, navigation }: any) {
   const [conflictMessage, setConflictMessage] = useState<string>('This delay causes your arrival to overlap with your next flight\'s departure.');
   const [pendingUpdateTrips, setPendingUpdateTrips] = useState<any[] | null>(null);
 
+  // Post Trip Feedback State
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
-  const handleApplyDelay = (minutes: number, segmentIndex?: number) => {
+  // Onboarding Modal State
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+
+  // Handle Initial Action from Notifications
+  React.useEffect(() => {
+    if (initialAction && typeof initialAction === 'string' && initialAction.includes('post-trip-feedback')) {
+      // Delay slightly to let the screen mount
+      setTimeout(() => setShowFeedbackModal(true), 500);
+    }
+  }, [initialAction]);
+
+  // Check for First-Time Setup
+  React.useEffect(() => {
+    const checkOnboarding = async () => {
+      try {
+        const setupShownKey = '@travelbuddy_setup_prompt_shown';
+        const hasShown = await AsyncStorage.getItem(setupShownKey);
+
+        if (!hasShown) {
+          // Add a small delay so it doesn't pop up instantly over transitions
+          setTimeout(() => {
+            setShowOnboardingModal(true);
+          }, 1000);
+        }
+      } catch (error) {
+        console.error('Error checking onboarding status:', error);
+      }
+    };
+
+    checkOnboarding();
+  }, []);
+
+  const handleSaveOnboarding = async (bedtime: string, wakeTime: string) => {
+    // 1. Close Modal FIRST to prevent UI freeze/crash sensation
+    setShowOnboardingModal(false);
+
+    // 2. Mark as shown immediately
+    try {
+      await AsyncStorage.setItem('@travelbuddy_setup_prompt_shown', 'true');
+    } catch (error) {
+      console.error('Error saving onboarding status:', error);
+    }
+
+    // 3. Update Context (heavy operation) with a slight delay to allow modal close animation
+    setTimeout(() => {
+      updateUserSettings({
+        ...userSettings,
+        normalBedtime: bedtime,
+        normalWakeTime: wakeTime
+      });
+    }, 500);
+  };
+
+
+
+  const handleApplyDelay = (minutes: number, segmentIndex?: number, updateDeparture: boolean = true) => {
     const updatedTrips = [...plan.trips];
     const tripToUpdate = plan.trips[currentTripIndex];
     if (!tripToUpdate) return;
@@ -160,7 +198,11 @@ export default function TripDetail({ route, navigation }: any) {
       const segment = updatedSegments[segmentIndex];
 
       // Update selected segment times
-      const segDepart = moment(`${segment.departDate} ${segment.departTime}`, 'YYYY-MM-DD HH:mm').add(minutes, 'minutes');
+      let segDepart = moment(`${segment.departDate} ${segment.departTime}`, 'YYYY-MM-DD HH:mm');
+      if (updateDeparture) {
+        segDepart.add(minutes, 'minutes');
+      }
+
       const segArrive = moment(`${segment.arriveDate} ${segment.arriveTime}`, 'YYYY-MM-DD HH:mm').add(minutes, 'minutes');
 
       updatedSegments[segmentIndex] = {
@@ -238,10 +280,13 @@ export default function TripDetail({ route, navigation }: any) {
     }
 
     // TRIP-LEVEL DELAY (single flight or legacy behavior)
-    const departMoment = moment(`${tripToUpdate.departDate} ${tripToUpdate.departTime}`, 'YYYY-MM-DD HH:mm');
+    let departMoment = moment(`${tripToUpdate.departDate} ${tripToUpdate.departTime}`, 'YYYY-MM-DD HH:mm');
+    if (updateDeparture) {
+      departMoment.add(minutes, 'minutes');
+    }
     const arriveMoment = moment(`${tripToUpdate.arriveDate} ${tripToUpdate.arriveTime}`, 'YYYY-MM-DD HH:mm');
 
-    const newDepart = departMoment.add(minutes, 'minutes');
+    const newDepart = departMoment;
     const newArrive = arriveMoment.add(minutes, 'minutes');
 
     const updatedSegments = tripToUpdate.segments ? [...tripToUpdate.segments] : [];
@@ -249,7 +294,10 @@ export default function TripDetail({ route, navigation }: any) {
     // Update first segment departure (if exists)
     if (updatedSegments.length > 0) {
       const firstSeg = updatedSegments[0];
-      const segDepart = moment(`${firstSeg.departDate} ${firstSeg.departTime}`, 'YYYY-MM-DD HH:mm').add(minutes, 'minutes');
+      let segDepart = moment(`${firstSeg.departDate} ${firstSeg.departTime}`, 'YYYY-MM-DD HH:mm');
+      if (updateDeparture) {
+        segDepart.add(minutes, 'minutes');
+      }
       updatedSegments[0] = {
         ...firstSeg,
         departDate: segDepart.format('YYYY-MM-DD'),
@@ -498,6 +546,39 @@ export default function TripDetail({ route, navigation }: any) {
     setShowExhaustionModal(false);
   };
 
+  // Next Phase / Next Day Logic
+  const getNextStepInfo = () => {
+    const dates = getDatesForPhase(activePhase);
+
+    // 1. Next Date in same phase?
+    if (activePhase !== 'travel' && selectedDate) {
+      const currentIndex = dates.indexOf(selectedDate);
+      if (currentIndex !== -1 && currentIndex < dates.length - 1) {
+        return { label: "Next Day", type: 'date', target: dates[currentIndex + 1] };
+      }
+    }
+
+    // 2. Next Phase?
+    if (activePhase === 'prepare') return { label: "Start Travel", type: 'phase', target: 'travel' };
+    if (activePhase === 'travel') return { label: "Start Adjustment", type: 'phase', target: 'adjust' };
+
+    // 3. End of Plan
+    return { label: "Return to Plans", type: 'finish' };
+  };
+
+  const handleNextStep = () => {
+    const { type, target } = getNextStepInfo();
+
+    if (type === 'date') {
+      setSelectedDate(target as string);
+      // Optional: scroll to top
+    } else if (type === 'phase') {
+      setActivePhase(target as any);
+    } else {
+      navigation.navigate('MainTabs', { screen: 'Plans' });
+    }
+  };
+
   // OLD: Local state removed
 
   const checkAndPromptReview = async (updatedStatuses?: any) => {
@@ -597,16 +678,16 @@ export default function TripDetail({ route, navigation }: any) {
   // Defensive check for malformed plan data
   if (!plan || !plan.trips || plan.trips.length === 0 || !plan.jetLagPlans) {
     return (
-      <View style={styles.container}>
-        <View style={styles.header}>
+      <View style={[styles.container, { backgroundColor: colors.bg }]}>
+        <View style={[styles.header, { backgroundColor: colors.bg, borderBottomColor: 'transparent' }]}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={styles.backButton}
             hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
           >
-            <Icon name="chevron-left" size={28} color="#1E293B" />
+            <Icon name="chevron-left" size={28} color={colors.text} />
           </TouchableOpacity>
-          <Text style={styles.planName}>Error loading plan</Text>
+          <Text style={[styles.planName, { color: colors.text }]}>Error loading plan</Text>
         </View>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>
@@ -769,6 +850,19 @@ export default function TripDetail({ route, navigation }: any) {
       doneText: "#ffffffff",
     },
 
+    // 🫐 Supplement (Melatonin/Magnesium) — Kawaii Taro Theme
+    "Supplement": {
+      background: "#F3E5F5",        // Soft Lilac / Taro Milk
+      titleColor: "#7B1FA2",        // Warm Deep Purple
+      timeColor: "#7B1FA2",
+      textColor: "#4A148C",        // Darker Purple for text
+      labelColor: "#9C27B0",        // Vibrant Warm Purple
+      skipBg: "#E1BEE7",            // Pastel Lavender
+      skipText: "#4A148C",
+      doneBg: "#8E24AA",            // Medium Purple
+      doneText: "#FFFFFF",
+    },
+
     "ManagingEnergy": {
       background: "#FFD4C4",
       titleColor: "#5C3A2E",
@@ -778,6 +872,45 @@ export default function TripDetail({ route, navigation }: any) {
       skipBg: "#FFE8DC",
       skipText: "#5C3A2E",
       doneBg: "#E8A890",
+      doneText: "#FFFFFF",
+    },
+
+    // 🥗 Meal (Dinner / Light Meal) — Pistachio Theme
+    "Meal": {
+      background: "#E6F5D0",        // Light Pistachio Green
+      titleColor: "#3E5C41",        // Deep Organic Green
+      timeColor: "#3E5C41",         // Deep Organic Green
+      textColor: "#1A2E1C",        // Very Dark Green Description
+      labelColor: "#3E5C41",        // Deep Organic Green
+      skipBg: "#D4EBC0",            // Muted Pistachio Skip
+      skipText: "#3E5C41",
+      doneBg: "#3E5C41",            // Deep Organic Green Done
+      doneText: "#FFFFFF",
+    },
+
+    // ⏳ Fasting — Soft Gray Theme
+    "Fasting": {
+      background: "#F1F5F9",        // Soft slate gray
+      titleColor: "#475569",        // Medium slate
+      timeColor: "#475569",
+      textColor: "#334155",         // Darker slate for readability
+      labelColor: "#64748B",        // Slate
+      skipBg: "#E2E8F0",            // Muted slate skip
+      skipText: "#475569",
+      doneBg: "#64748B",            // Solid slate done
+      doneText: "#FFFFFF",
+    },
+
+    // 🌊 Teal (Travel Day / Phase Tabs Match)
+    "Teal": {
+      background: "#C7F5E8",        // Soft Mint/Teal
+      titleColor: "#0D4C4A",        // Dark Teal
+      timeColor: "#0D4C4A",         // Dark Teal
+      textColor: "#0D4C4A",         // Dark Teal
+      labelColor: "#0F766E",        // Slightly lighter teal for labels
+      skipBg: "#E0F2F1",            // Very light teal
+      skipText: "#0D4C4A",
+      doneBg: "#0D4C4A",            // Dark Teal
       doneText: "#FFFFFF",
     },
 
@@ -803,6 +936,31 @@ export default function TripDetail({ route, navigation }: any) {
     if (t.includes('priority') || t.includes('early bedtime'))
       return CARD_THEMES.Priority;
 
+    // Supplements (Melatonin / Magnesium) — CHECK EARLY
+    if (t.includes('melatonin') || t.includes('magnesium'))
+      return CARD_THEMES.Supplement;
+
+    // Supplements (Melatonin / Magnesium) — CHECK EARLY
+    if (t.includes('melatonin') || t.includes('magnesium'))
+      return CARD_THEMES.Supplement;
+
+    // Fasting / Align Meal Schedule (Check BEFORE generic "meal" check)
+    if (t.includes('fasting') || t.includes('align your meal schedule'))
+      return CARD_THEMES.Fasting;
+
+    // Meals (Dinner / Light Meal, Break Fast)
+    // Fix: "Seattle" contains "eat", so we must be careful.
+    if (
+      (t.includes('eat ') || t.startsWith('eat')) || // Match "eat pattern" with space or start
+      t.includes('dinner') ||
+      t.includes('meal') ||
+      t.includes('time for breakfast') ||
+      t.includes('in-flight breakfast') ||
+      t.includes('break your fast') ||
+      t.includes('break fast')
+    )
+      return CARD_THEMES.Meal;
+
     // Daily Routine card
     if (t.includes('daily routine'))
       return CARD_THEMES.Hydrated;
@@ -825,7 +983,7 @@ export default function TripDetail({ route, navigation }: any) {
 
     // Your Flight - CHECK THIS FIRST before "light" check
     if (t.includes("your flight"))
-      return CARD_THEMES.Hydrated;
+      return CARD_THEMES.Teal;
 
     // Flight segment cards - CHECK THIS FIRST before "light" check  
     if (t.includes("flight from"))
@@ -878,6 +1036,16 @@ export default function TripDetail({ route, navigation }: any) {
       return 'x-circle';
     }
 
+    // Align Meal Schedule / Fasting (Check BEFORE generic "meal" check)
+    if (t.includes('fasting') || t.includes('align your meal schedule')) {
+      return 'circle';
+    }
+
+    // Meal / Break Fast
+    if ((t.includes('eat ') || t.startsWith('eat')) || t.includes('dinner') || t.includes('meal') || t.includes('time for breakfast') || t.includes('break your fast') || t.includes('break fast')) {
+      return 'package';  // Food box icon
+    }
+
     // Sunlight / Light (but check after flight cards)
     if (t.includes('sunlight') || (t.includes('light') && !t.includes('avoid')) || t.includes('lock in')) {
       return 'sun';
@@ -898,10 +1066,7 @@ export default function TripDetail({ route, navigation }: any) {
       return 'droplet';
     }
 
-    // Eat / Dinner
-    if (t.includes('eat') || t.includes('dinner') || t.includes('meal')) {
-      return 'package';  // Food box icon
-    }
+
 
     // Daily Routine / Arrow
     if (t.includes('routine') || t.includes('starting tomorrow')) {
@@ -1007,6 +1172,16 @@ export default function TripDetail({ route, navigation }: any) {
 
   const visibleCards = getVisibleCards();
 
+  // Extract "Your Flight" card for sticky rendering
+  const flightCard = activePhase === 'travel'
+    ? visibleCards.find(c => c.title.toLowerCase().includes('flight from') || c.title.toLowerCase().includes('your flight'))
+    : null;
+
+  // Filter out flight card from main list if found
+  const scrollableCards = flightCard
+    ? visibleCards.filter(c => c.id !== flightCard.id)
+    : visibleCards;
+
 
   // Card expand toggle
   const toggleCard = (cardId: string) => {
@@ -1060,19 +1235,19 @@ export default function TripDetail({ route, navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg }]}>
       {/* ────── Header bar ────── */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: colors.bg, borderBottomColor: 'transparent' }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.backButton}
           hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
         >
-          <Icon name="chevron-left" size={28} color="#1E293B" />
+          <Icon name="chevron-left" size={28} color={colors.text} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <Text style={styles.planName}>{plan.name || (trip ? `Trip to ${trip.to}` : 'My Trip')}</Text>
-          <Text style={styles.subtitle}>{moment(trip.departDate).format('MMM D, YYYY')} Departure</Text>
+          <Text style={[styles.planName, { color: colors.text }]}>{plan.name || (trip ? `Trip to ${trip.to}` : 'My Trip')}</Text>
+          <Text style={[styles.subtitle, { color: colors.subtext }]}>{moment(trip.departDate).format('MMM D, YYYY')} Departure</Text>
         </View>
 
         <View
@@ -1084,7 +1259,7 @@ export default function TripDetail({ route, navigation }: any) {
             style={styles.editButton}
             onPress={() => setShowDelayModal(true)}
           >
-            <Icon name="clock" size={24} color="#1E293B" />
+            <Icon name="clock" size={24} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.editButton}
@@ -1097,7 +1272,7 @@ export default function TripDetail({ route, navigation }: any) {
               });
             }}
           >
-            <Icon name="edit-2" size={24} color="#1E293B" />
+            <Icon name="edit-2" size={24} color={colors.text} />
           </TouchableOpacity>
         </View>
       </View>
@@ -1133,7 +1308,7 @@ export default function TripDetail({ route, navigation }: any) {
       {/* ────── Trip Navigation Arrows ────── */}
       {
         plan.trips.length > 1 && (
-          <View style={styles.tripNavigation}>
+          <View style={[styles.tripNavigation, { backgroundColor: colors.bg, borderBottomColor: 'transparent' }]}>
             <TouchableOpacity
               style={[styles.navButton, currentTripIndex === 0 && styles.navButtonDisabled]}
               onPress={goToPreviousTrip}
@@ -1142,7 +1317,7 @@ export default function TripDetail({ route, navigation }: any) {
             </TouchableOpacity>
 
             <View style={styles.tripInfo}>
-              <Text style={styles.tripTitle}>{trip.from} {'>'} {trip.to}</Text>
+              <Text style={[styles.tripTitle, { color: colors.text }]}>{trip.from} {'>'} {trip.to}</Text>
             </View>
 
             <TouchableOpacity
@@ -1159,7 +1334,8 @@ export default function TripDetail({ route, navigation }: any) {
       }
 
       {/* ────── Phase Tabs (Prepare / Travel / Adjust) ────── */}
-      <View style={styles.phaseTabs}>
+      {/* ────── Phase Tabs (Prepare / Travel / Adjust) ────── */}
+      <View style={[styles.phaseTabs, { backgroundColor: colors.bg, borderBottomColor: 'transparent' }]}>
         {['prepare', 'travel', 'adjust']
           .filter(phaseKey => {
             // For Stay Home trips, hide 'prepare' tab to simplify structure (User feedback)
@@ -1174,7 +1350,7 @@ export default function TripDetail({ route, navigation }: any) {
 
             return true;
           })
-          .map((phaseKey) => {
+          .map((phaseKey, index, arr) => {
             // Dynamic Labeling
             let label = '';
             if (phaseKey === 'prepare') {
@@ -1186,19 +1362,36 @@ export default function TripDetail({ route, navigation }: any) {
               label = tripPlan.strategy === 'stay_home' ? 'Trip Schedule' : 'Adjust';
             }
 
+            const isSingleTab = arr.length === 1;
+
             return (
               <TouchableOpacity
                 key={phaseKey}
-                style={[styles.phaseTab, activePhase === phaseKey && styles.phaseTabActive]}
+                style={[
+                  styles.phaseTab,
+                  { backgroundColor: activePhase === phaseKey ? undefined : colors.surface },
+                  activePhase === phaseKey && styles.phaseTabActive,
+                  { flex: 0, width: '31%' },
+                  isDark && { shadowColor: 'transparent', elevation: 0 }
+                ]}
                 onPress={() => {
                   // For Stay Home trips with only one tab, don't allow switching
                   if (tripPlan.strategy === 'stay_home') return;
+                  const previousPhase = activePhase;
+
+                  // Smoothly animate the transition between phase cards
+                  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
                   setActivePhase(phaseKey as any);
+
+                  // Track phase navigation
+                  Analytics.logTabSwitch(previousPhase, phaseKey);
+                  Analytics.logPhaseViewed(phaseKey);
                 }}
                 disabled={tripPlan.strategy === 'stay_home'}>
                 <Text
                   style={[
                     styles.phaseTabText,
+                    { color: activePhase === phaseKey ? undefined : colors.text },
                     activePhase === phaseKey && styles.phaseTabTextActive,
                   ]}>
                   {label}
@@ -1206,6 +1399,7 @@ export default function TripDetail({ route, navigation }: any) {
                 <Text
                   style={[
                     styles.phaseTabDate,
+                    { color: activePhase === phaseKey ? undefined : colors.subtext },
                     activePhase === phaseKey && styles.phaseTabDateActive,
                   ]}>
                   {tripPlan.phases[phaseKey as keyof typeof tripPlan.phases].dateRange}
@@ -1215,28 +1409,14 @@ export default function TripDetail({ route, navigation }: any) {
           })}
       </View>
 
-      {/* ────── Reset Button (for Prepare/Adjust) ────── */}
-      {
-        activePhase !== 'travel' && hasAnyStatusChanges && (
-          <View style={styles.resetButtonContainer}>
-            <TouchableOpacity style={styles.resetButton} onPress={handleResetAll}>
-              <Text style={styles.resetButtonText}>
-                Reset All Cards ({statusCounts.done} done, {statusCounts.skipped} skipped)
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )
-      }
+
 
       {/* ────── Sticky Section Header (navy bar) ────── */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionHeaderText}>{getPhaseHeaderText()}</Text>
 
-      </View>
 
       {/* ────── Prepare/Adjust Phase Sub-Tabs ────── */}
       {(activePhase === 'prepare' || activePhase === 'adjust') && getDatesForPhase(activePhase).length > 1 && (
-        <View style={styles.prepareDateTabsContainer}>
+        <View style={[styles.prepareDateTabsContainer, { backgroundColor: colors.bg, borderBottomColor: 'transparent' }]}>
           <View style={styles.prepareDateTabsScroll}>
             {getDatesForPhase(activePhase).map((dateStr) => {
               const mom = moment(dateStr);
@@ -1244,10 +1424,25 @@ export default function TripDetail({ route, navigation }: any) {
               return (
                 <TouchableOpacity
                   key={dateStr}
-                  style={[styles.prepareDateTab, isActive && styles.prepareDateTabActive]}
-                  onPress={() => setSelectedDate(dateStr)}
+                  style={[
+                    styles.prepareDateTab,
+                    {
+                      backgroundColor: isActive ? '#C7F5E8' : colors.surface,
+                      borderColor: isActive ? '#C7F5E8' : colors.border
+                    },
+                    isActive && styles.prepareDateTabActive
+                  ]}
+                  onPress={() => {
+                    // Smoothly animate the transition between date cards
+                    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                    setSelectedDate(dateStr);
+                  }}
                 >
-                  <Text style={[styles.prepareDateTabText, isActive && styles.prepareDateTabTextActive]}>
+                  <Text style={[
+                    styles.prepareDateTabText,
+                    { color: isActive ? '#0D4C4A' : colors.subtext },
+                    isActive && styles.prepareDateTabTextActive
+                  ]}>
                     {mom.format('MMM D')}
                   </Text>
                 </TouchableOpacity>
@@ -1257,12 +1452,212 @@ export default function TripDetail({ route, navigation }: any) {
         </View>
       )}
 
+      {/* ────── Reset Button (for Prepare/Adjust) - MOVED BELOW PILLS ────── */}
+      {
+        activePhase !== 'travel' && hasAnyStatusChanges && (
+          <View style={[styles.resetButtonContainer, { backgroundColor: colors.bg, borderBottomColor: 'transparent' }]}>
+            <TouchableOpacity style={styles.resetButton} onPress={handleResetAll}>
+              <Text style={styles.resetButtonText}>
+                Reset All Cards ({statusCounts.done} done, {statusCounts.skipped} skipped)
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )
+      }
+
+      {/* ────── Fixed "Your Flight" Card (Sticky) ────── */}
+      {flightCard && (
+        <View style={{
+          paddingTop: 2,
+          paddingBottom: 0, // Remove bottom padding per request
+          backgroundColor: 'transparent',
+          zIndex: 10,
+          width: '100%', // Ensure full width
+        }}>
+          {(() => {
+            const card = flightCard;
+            // NEW DESIGN: Teal theme (match Travel Day tab) + Dark Teal stroke
+            const theme = {
+              background: '#C7F5E8',    // Teal BG
+              titleColor: '#0D4C4A',    // Dark Teal
+              timeColor: '#0D4C4A',     // Dark Teal
+              textColor: '#0D4C4A',    // Dark Teal
+              labelColor: '#0F766E',
+              skipBg: '#E0F2F1', skipText: '#0D4C4A', doneBg: '#0D4C4A', doneText: '#FFFFFF'
+            };
+            const status = getCardStatus(card.id);
+
+            return (
+              // Override margins for sticky context to tighten spacing
+              <View key={card.id} style={[styles.cardContainer, { marginBottom: 0, marginTop: 0 }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.card,
+                    {
+                      backgroundColor: theme.background,
+                      // Ticket Styling
+                      borderBottomWidth: 2,
+                      borderColor: '#0F766E', // Slightly darker/desaturated teal for dashed line
+                      borderStyle: 'dashed',
+                      paddingVertical: 12,    // Slimmer padding (default is usually 16)
+                      borderRadius: 12,       // Keep rounded
+                      borderBottomLeftRadius: 4,  // Slightly sharper bottom corners for "stub" feel
+                      borderBottomRightRadius: 4,
+                    } as ViewStyle,
+                    status !== 'active' && styles.cardFaded,
+                    (card.isInfo || card.title.includes('Routine')) && styles.cardInfo
+                  ]}
+                  onPress={() => {
+                    if (status !== 'active') {
+                      handleUndo(card.id);
+                    } else if (!card.isInfo) {
+                      toggleCard(card.id);
+                    }
+                  }}
+                  disabled={card.isInfo}
+                  activeOpacity={0.9}
+                >
+                  {/* Status badge */}
+                  {status !== 'active' && (
+                    <View style={[
+                      styles.statusBadge,
+                      status === 'done' ? styles.statusBadgeDone : styles.statusBadgeSkipped
+                    ]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        {status === 'done' ? (
+                          <>
+                            <Icon name="check" size={12} color="#FFFFFF" />
+                            <Text style={styles.statusBadgeText}>Done</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Icon name="skip-forward" size={12} color="#FFFFFF" />
+                            <Text style={styles.statusBadgeText}>Skipped</Text>
+                          </>
+                        )}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Info button */}
+                  {!card.isInfo && status === 'active' && (
+                    <TouchableOpacity
+                      style={styles.infoButton}
+                      onPress={() => toggleCard(card.id)}
+                    >
+                      <Icon
+                        name={expandedCards.has(card.id) ? 'chevron-up' : 'chevron-down'}
+                        size={20}
+                        color={theme.titleColor}
+                      />
+                    </TouchableOpacity>
+                  )}
+
+                  {/* Card header */}
+                  <View style={[
+                    styles.cardHeader,
+                    card.isInfo && { paddingRight: 0 }
+                  ]}>
+                    <View style={styles.cardHeaderContent}>
+                      {!card.title.includes('Daily Routine') && (
+                        <Icon
+                          name={getCardIconName(card.title)}
+                          size={22}
+                          color={theme.titleColor}
+                          style={styles.cardIcon}
+                        />
+                      )}
+                      <View style={styles.cardHeaderText}>
+                        <Text
+                          style={[
+                            styles.cardTitle,
+                            { color: theme.titleColor } as TextStyle,
+                            card.isInfo && { marginBottom: 0 }
+                          ]}
+                          numberOfLines={card.title.includes('>') ? 1 : 2}
+                          adjustsFontSizeToFit={card.title.includes('>') || card.title.includes('→')}
+                          minimumFontScale={0.95}
+                        >
+                          {activePhase === 'prepare' ? card.title.split(' - ')[0] : card.title}
+                        </Text>
+                        {card.time && (
+                          <Text style={[styles.cardTime, { color: theme.timeColor } as TextStyle]}>
+                            {card.time}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Expanded details */}
+                  {status === 'active' && expandedCards.has(card.id) && (
+                    <View style={styles.cardExpanded}>
+                      <Text style={[styles.cardExpandedLabel, { color: theme.labelColor } as TextStyle]}>
+                        {card.title.toLowerCase().includes('arrived') ? 'WHAT THIS MEANS:' : 'WHY THIS HELPS:'}
+                      </Text>
+                      <Text style={[styles.cardExpandedText, { color: theme.textColor } as TextStyle]}>
+                        {card.why}
+                      </Text>
+
+                      <Text style={[styles.cardExpandedLabel, { color: theme.labelColor } as TextStyle]}>
+                        {card.title.toLowerCase().includes('arrived')
+                          ? "WHAT'S NEXT:"
+                          : (card.title.toLowerCase().includes('melatonin') || card.title.toLowerCase().includes('magnesium'))
+                            ? 'OPTIONAL GUIDANCE:'
+                            : 'HOW TO DO IT:'}
+                      </Text>
+                      <Text style={[styles.cardExpandedText, { color: theme.textColor } as TextStyle]}>
+                        {card.how}
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Undo message */}
+                  {status !== 'active' && (
+                    <View style={styles.undoMessage}>
+                      <Text style={[styles.undoMessageText, { color: theme.textColor } as TextStyle]}>
+                        Tap card to undo
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Actions */}
+                  {!card.isInfo && status === 'active' && card.id !== 'conflict-warning' && (
+                    <View style={styles.cardActions}>
+                      <TouchableOpacity
+                        style={[styles.skipButton, { backgroundColor: theme.skipBg } as ViewStyle]}
+                        onPress={() => handleSkip(card.id)}
+                      >
+                        <Text style={[styles.skipButtonText, { color: theme.skipText } as TextStyle]}>
+                          Skip
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.doneButton, { backgroundColor: theme.doneBg } as ViewStyle]}
+                        onPress={() => handleDone(card.id)}
+                      >
+                        <Text style={[styles.doneButtonText, { color: theme.doneText } as TextStyle]}>
+                          Done
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+            );
+          })()}
+        </View>
+      )}
+
       {/* ────── Cards Section ────── */}
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: colors.bg }]} contentContainerStyle={{ paddingBottom: 40, paddingTop: flightCard ? 6 : 0 }}
+        showsVerticalScrollIndicator={false}
+      >
 
         {/* ────── Reset Button (for Travel Day - after flight card) ────── */}
         {activePhase === 'travel' && hasAnyStatusChanges && (
-          <View style={styles.resetButtonContainer}>
+          <View style={[styles.resetButtonContainer, { backgroundColor: colors.bg, borderBottomColor: 'transparent' }]}>
             <TouchableOpacity style={styles.resetButton} onPress={handleResetAll}>
               <Text style={styles.resetButtonText}>
                 Reset All Cards ({statusCounts.done} done, {statusCounts.skipped} skipped)
@@ -1272,7 +1667,7 @@ export default function TripDetail({ route, navigation }: any) {
         )}
 
         {/* Render cards — only one navy header per day */}
-        {visibleCards.map((card: Card) => {
+        {scrollableCards.map((card: Card) => {
           const theme = getCardTheme(card.title);
           const status = getCardStatus(card.id);
 
@@ -1389,16 +1784,18 @@ export default function TripDetail({ route, navigation }: any) {
                 {status === 'active' && expandedCards.has(card.id) && (
                   <View style={styles.cardExpanded}>
                     <Text style={[styles.cardExpandedLabel, { color: theme.labelColor } as TextStyle]}>
-                      WHY THIS HELPS:
+                      {card.title.toLowerCase().includes('arrived') ? 'WHAT THIS MEANS:' : 'WHY THIS HELPS:'}
                     </Text>
                     <Text style={[styles.cardExpandedText, { color: theme.textColor } as TextStyle]}>
                       {card.why}
                     </Text>
 
                     <Text style={[styles.cardExpandedLabel, { color: theme.labelColor } as TextStyle]}>
-                      {(card.title.toLowerCase().includes('melatonin') || card.title.toLowerCase().includes('magnesium'))
-                        ? 'OPTIONAL GUIDANCE:'
-                        : 'HOW TO DO IT:'}
+                      {card.title.toLowerCase().includes('arrived')
+                        ? "WHAT'S NEXT:"
+                        : (card.title.toLowerCase().includes('melatonin') || card.title.toLowerCase().includes('magnesium'))
+                          ? 'OPTIONAL GUIDANCE:'
+                          : 'HOW TO DO IT:'}
                     </Text>
                     <Text style={[styles.cardExpandedText, { color: theme.textColor } as TextStyle]}>
                       {card.how}
@@ -1442,6 +1839,16 @@ export default function TripDetail({ route, navigation }: any) {
           );
         })}
 
+        {/* Next Phase Button */}
+        <TouchableOpacity
+          style={styles.nextPhaseButton}
+          onPress={handleNextStep}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.nextPhaseButtonText}>{getNextStepInfo().label}</Text>
+          <Icon name="arrow-right" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+        </TouchableOpacity>
+
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
@@ -1452,17 +1859,17 @@ export default function TripDetail({ route, navigation }: any) {
         animationType="fade"
       >
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-          <View style={{ backgroundColor: 'white', borderRadius: 20, padding: 24, width: '100%', maxWidth: 400 }}>
-            <Text style={{ fontFamily: 'Jua', fontSize: 24, color: '#0D4C4A', marginBottom: 12, textAlign: 'center' }}>
+          <View style={{ backgroundColor: colors.surface, borderRadius: 20, padding: 24, width: '100%', maxWidth: 400 }}>
+            <Text style={{ fontFamily: 'Jua', fontSize: 24, color: colors.text, marginBottom: 12, textAlign: 'center' }}>
               Welcome to {plan.trips[currentTripIndex].to}!
             </Text>
-            <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#64748B', marginBottom: 24, textAlign: 'center' }}>
+            <Text style={{ fontFamily: 'Jua', fontSize: 16, color: colors.subtext, marginBottom: 24, textAlign: 'center' }}>
               How are you feeling after your journey? This helps us tailor your recovery plan.
             </Text>
 
             <TouchableOpacity
               style={{
-                backgroundColor: '#FFE4D6', // Pastel Peach
+                backgroundColor: isDark ? '#7C2D12' : '#FFE4D6', // Dark Red or Pastel Peach
                 paddingVertical: 12,
                 paddingHorizontal: 20,
                 borderRadius: 16,
@@ -1474,12 +1881,12 @@ export default function TripDetail({ route, navigation }: any) {
               }}
               onPress={() => handleUpdateRestStatus('exhausted')}
             >
-              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#7C2D12', textAlign: 'center' }}>I'm feeling drained and tired</Text>
+              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: isDark ? '#FFE4D6' : '#7C2D12', textAlign: 'center' }}>I'm feeling drained and tired</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={{
-                backgroundColor: '#D1FAE5', // Pastel Teal
+                backgroundColor: isDark ? '#064E3B' : '#D1FAE5', // Dark Emerald or Pastel Teal
                 paddingVertical: 12,
                 paddingHorizontal: 20,
                 borderRadius: 16,
@@ -1491,7 +1898,7 @@ export default function TripDetail({ route, navigation }: any) {
               }}
               onPress={() => handleUpdateRestStatus('ok')}
             >
-              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: '#0F766E', textAlign: 'center' }}>I feel reasonably rested</Text>
+              <Text style={{ fontFamily: 'Jua', fontSize: 16, color: isDark ? '#D1FAE5' : '#0F766E', textAlign: 'center' }}>I feel reasonably rested</Text>
             </TouchableOpacity>
 
             {/* "Ask Me Later" Button */}
@@ -1499,13 +1906,18 @@ export default function TripDetail({ route, navigation }: any) {
               style={{ padding: 12, alignItems: 'center' }}
               onPress={() => setShowExhaustionModal(false)}
             >
-              <Text style={{ fontFamily: 'Jua', fontSize: 14, color: '#94A3B8' }}>Ask me later</Text>
+              <Text style={{ fontFamily: 'Jua', fontSize: 14, color: colors.subtext }}>Ask me later</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-
+      {/* Post Trip Feedback Modal */}
+      <PostTripFeedback
+        planId={plan.id}
+        isVisible={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+      />
 
       {/* Quick Delay Modal */}
       <QuickDelayModal
@@ -1541,6 +1953,14 @@ export default function TripDetail({ route, navigation }: any) {
           setPendingUpdateTrips(null);
         }}
       />
+
+      {/* Onboarding Modal */}
+      <OnboardingModal
+        visible={showOnboardingModal}
+        onSave={handleSaveOnboarding}
+        initialBedtime={userSettings?.normalBedtime}
+        initialWakeTime={userSettings?.normalWakeTime}
+      />
     </View >
   );
 }
@@ -1557,8 +1977,8 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     paddingTop: 60,
     paddingBottom: 16,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomWidth: 0,
+    borderBottomColor: 'transparent',
   },
   headerContent: { flex: 1 },
   backButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
@@ -1610,7 +2030,6 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     fontFamily: 'Jua',
     fontSize: 12,
     color: '#5EDAD9', // Cyan color
-    textDecorationLine: 'underline',
   },
   tooltipArrow: {
     position: 'absolute',
@@ -1637,8 +2056,7 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     paddingHorizontal: 16,
     paddingVertical: 16,
     backgroundColor: '#FFFFFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomWidth: 0,
   },
   navButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center', backgroundColor: '#5EDAD9', borderRadius: 20 },
   navButtonDisabled: { backgroundColor: '#E5E7EB' },
@@ -1646,21 +2064,36 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   tripTitle: { fontFamily: 'Jua', fontSize: 18, color: '#1E293B' },
   tripSubtitle: { fontFamily: 'Jua', fontSize: 14, color: '#64748B' },
 
-  phaseTabs: { flexDirection: 'row', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#FFFFFF', gap: 8 },
-  phaseTab: { flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: '#F3F4F6', alignItems: 'center' },
-  phaseTabActive: { backgroundColor: '#C7F5E8' },
-  phaseTabText: { fontFamily: 'Jua', fontSize: 14, color: '#64748B' },
-  phaseTabTextActive: { color: '#0D4C4A' },
+  phaseTabs: { flexDirection: 'row', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, backgroundColor: '#FFFFFF', gap: 12, justifyContent: 'center' }, // Increased gap and bottom padding
+  phaseTab: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: '#F3F4F6', // Revert to Light Grey
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+    // Remove borders
+  },
+  phaseTabActive: {
+    backgroundColor: '#C7F5E8', // Keep Teal BG
+    // Remove border
+  },
+  phaseTabText: { fontFamily: 'Jua', fontSize: 14, color: '#64748B', marginBottom: 2 },
+  phaseTabTextActive: { color: '#0D4C4A', opacity: 1 }, // Force full opacity and Dark Teal
   phaseTabDate: { fontFamily: 'Jua', fontSize: 12, color: '#94A3B8' },
-  phaseTabDateActive: { color: '#0D4C4A' },
+  phaseTabDateActive: { color: '#0D4C4A', opacity: 1 }, // Force full opacity and Dark Teal
 
-  scrollView: { backgroundColor: '#F8FAFC' },
+  scrollView: { flex: 1 }, // BG color moved to inline style
   sectionHeader: {
-    backgroundColor: '#1E3A5F', // Navy banner
+    backgroundColor: '#C7F5E8', // Soft Mint (matches active tab)
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
-  sectionHeaderText: { fontFamily: 'Jua', color: '#FFFFFF', fontSize: 16 },
+  sectionHeaderText: { fontFamily: 'Jua', color: '#0D4C4A', fontSize: 16 },
 
   cardContainer: { marginTop: 8, marginBottom: 12, paddingHorizontal: 16 },
   card: { borderRadius: 12, padding: 16 },
@@ -1786,12 +2219,12 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
   // Prepare Phase Date Sub-Tabs (New Refined Design)
   prepareDateTabsContainer: {
     marginTop: 0,
-    backgroundColor: '#FFFFFF', // Add white background strip? Or keeps transparent? transparent is better for "not in header" feel but maybe better contrast if it has its own strip.
-    // User said "not with the navy background".
-    paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    paddingTop: 8,
+    paddingBottom: 8,
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    borderBottomWidth: 0,
+    borderBottomColor: 'transparent',
   },
   prepareDateTabsScroll: {
     flexDirection: 'row',
@@ -1801,22 +2234,46 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     paddingVertical: 6,
     paddingHorizontal: 16,
     borderRadius: 20,
-    backgroundColor: '#F1F5F9', // Light gray for inactive
+    backgroundColor: '#F1F5F9', // Revert to Light Gray
     borderWidth: 1,
     borderColor: '#F1F5F9',
   },
   prepareDateTabActive: {
-    backgroundColor: '#1E3A5F', // Navy for active (inverted from before)
-    borderColor: '#1E3A5F',
+    backgroundColor: '#C7F5E8', // Teal for active
+    borderColor: '#C7F5E8',
   },
   prepareDateTabText: {
     fontFamily: 'Jua',
     fontSize: 13,
-    color: '#64748B', // Slate for inactive
+    color: '#64748B', // Revert to Slate for inactive
   },
   prepareDateTabTextActive: {
-    color: '#FFFFFF', // White for active
-  }
+    color: '#0D4C4A', // Dark Teal text
+    fontWeight: '600',
+  },
+
+  // Next Phase Button
+  nextPhaseButton: {
+    backgroundColor: '#1F4259', // Navy
+    marginHorizontal: 16, // Match TodayView/View Full Plan padding
+    marginTop: 24,
+    marginBottom: 40,
+    paddingVertical: 16,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  nextPhaseButtonText: {
+    fontFamily: 'Jua',
+    fontSize: 16, // Match View Full Plan text size
+    color: '#FFFFFF',
+  },
 });
 
 
