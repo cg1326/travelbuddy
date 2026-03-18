@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Icon from 'react-native-vector-icons/Feather';
@@ -22,7 +22,8 @@ import QuickDelayModal from '../components/QuickDelayModal';
 import ConflictModal from '../components/ConflictModal';
 import OnboardingModal from '../components/OnboardingModal'; // Import OnboardingModal
 import PostTripFeedback from './PostTripFeedback';
-import { getCityTimezone } from '../utils/jetLagAlgorithm';
+import HITLBanner from '../components/HITLBanner';
+import { getCityTimezone, safelyGetBedtimeMoment } from '../utils/jetLagAlgorithm';
 import type { Card, Phase, JetLagPlan, Trip } from '../types/models';
 import moment from 'moment-timezone';
 import * as StoreReview from 'react-native-store-review';
@@ -30,17 +31,28 @@ import { Analytics } from '../utils/Analytics'; // Import Analytics
 
 
 // Helper to determine if we should prompt for exhaustion
-const isWithinArrivalWindow = (trip: Trip): boolean => {
+const isWithinArrivalWindow = (trip: Trip, normalBedtime?: string): boolean => {
   if (!trip) return false;
   // Use destination timezone for accurate "Now/Landed" comparison
   const destTz = trip.toTz || getCityTimezone(trip.to);
-  // Valid if within 18 hours after landing, starting 15 minutes after arrival
-  // Compare "Now" in destination vs "Arrival Time" in destination
   const landingTime = moment.tz(`${trip.arriveDate} ${trip.arriveTime}`, 'YYYY-MM-DD HH:mm', destTz);
   const nowInDestination = moment.tz(destTz);
 
-  const diffHours = nowInDestination.diff(landingTime, 'hours', true); // Use float for precision
-  return diffHours >= 0.25 && diffHours < 18; // 0.25 hours = 15 minutes
+  // Prompt logic:
+  // Starts 15 minutes after landing.
+  // Must expire by the arrival day's bedtime or 6:00 AM local time the next morning (fallback).
+  let cutoffMoment;
+  if (normalBedtime) {
+    cutoffMoment = safelyGetBedtimeMoment(trip.arriveDate, normalBedtime, destTz);
+  } else {
+    // Fallback if settings missing
+    cutoffMoment = landingTime.clone().add(1, 'day').hour(6).minute(0);
+  }
+
+  const diffHours = nowInDestination.diff(landingTime, 'hours', true);
+  const isBeforeCutoff = nowInDestination.isBefore(cutoffMoment);
+
+  return diffHours >= 0.25 && isBeforeCutoff;
 };
 
 // ───────────────────────────────────────────────
@@ -53,9 +65,10 @@ const getCardLogicalDate = (card: Card, tz: string) => {
   if (!card.dateTime) return '';
   const mom = moment.tz(card.dateTime, tz);
 
-  // EXCEPTION: "You've Arrived" card should always appear on the actual arrival date,
-  // even if it's 4 AM (which normally shifts to previous day).
-  if (card.id === 'adjust-arrival') {
+  // EXCEPTION: Adjust phase arrival cards should stay on their arrival date
+  // even if they happen in the early morning (e.g. 2 AM landing).
+  // This prevents them shifting to a "Day -1" that doesn't exist in the phase.
+  if (card.id.startsWith('adjust-arrival') || card.id.startsWith('energy-check')) {
     return mom.format('YYYY-MM-DD');
   }
 
@@ -67,8 +80,10 @@ const getCardLogicalDate = (card: Card, tz: string) => {
 
 export default function TripDetail({ route, navigation }: any) {
   const { plan: initialPlan, initialTripIndex, initialPhase, initialAction } = route.params;
-  const { plans, updatePlan, cardStatuses, updateCardStatus, batchUpdateCardStatuses, userSettings, updateUserSettings } = usePlans();
+  const { plans, updatePlan, cardStatuses, updateCardStatus, batchUpdateCardStatuses, userSettings, updateUserSettings, outcomeRatings } = usePlans();
   const { colors, isDark } = useTheme();
+  const scrollViewRef = useRef<ScrollView>(null);
+  const isInitialFocusRef = useRef(false);
 
 
   // DEBUG LOG
@@ -79,6 +94,9 @@ export default function TripDetail({ route, navigation }: any) {
 
   const [currentTripIndex, setCurrentTripIndex] = useState(initialTripIndex || 0);
   const [activePhase, setActivePhase] = useState<'prepare' | 'travel' | 'adjust'>(initialPhase || 'travel');
+
+  const trip = plan.trips[currentTripIndex];
+  const tripPlan = plan.jetLagPlans[currentTripIndex];
 
   // React to param changes (e.g. Navigation from Notification while screen is already mounted)
   React.useEffect(() => {
@@ -137,11 +155,70 @@ export default function TripDetail({ route, navigation }: any) {
 
   // Handle Initial Action from Notifications
   React.useEffect(() => {
-    if (initialAction && typeof initialAction === 'string' && initialAction.includes('post-trip-feedback')) {
+    if (!initialAction || typeof initialAction !== 'string') return;
+
+    // Set persistence immediately to block the "Reset" effect from firing
+    // until we've had a chance to set the correct state.
+    isInitialFocusRef.current = true;
+
+    if (initialAction.includes('post-trip-feedback')) {
       // Delay slightly to let the screen mount
       setTimeout(() => setShowFeedbackModal(true), 500);
+      isInitialFocusRef.current = true;
+      return;
     }
-  }, [initialAction]);
+
+    if (initialAction.includes('energy-check')) {
+      setActivePhase('adjust');
+      setTimeout(() => setShowExhaustionModal(true), 500);
+      isInitialFocusRef.current = true;
+      return;
+    }
+
+    // Handle generic card focusing (e.g. from Travel Card notification)
+    const currentTripPlan = plan.jetLagPlans[currentTripIndex];
+    if (!currentTripPlan) return;
+
+    let foundCard = null;
+    let foundPhase = '';
+
+    // Search all phases for the card
+    for (const phaseKey of ['prepare', 'travel', 'adjust'] as const) {
+      const cards = currentTripPlan.phases[phaseKey]?.cards || [];
+      const match = cards.find((c: any) => c.id === initialAction);
+      if (match) {
+        foundCard = match;
+        foundPhase = phaseKey;
+        break;
+      }
+    }
+
+    if (foundCard) {
+      console.log(`[TripDetail] Auto-focusing card: ${initialAction} in phase ${foundPhase}`);
+
+      // 1. Switch Phase
+      setActivePhase(foundPhase as any);
+
+      // 2. Switch Date (if applicable)
+      const tz = getPhaseTimezone(foundPhase);
+      const logicalDate = getCardLogicalDate(foundCard, tz);
+      console.log(`[TripDetail] Card logical date: ${logicalDate}, timezone: ${tz}`);
+      if (logicalDate) {
+        setSelectedDate(logicalDate);
+      }
+
+      // 3. Expand Card
+      setExpandedCards(prev => {
+        const next = new Set(prev);
+        next.add(initialAction);
+        return next;
+      });
+      isInitialFocusRef.current = true;
+      console.log(`[TripDetail] Expanded cards set updated with: ${initialAction}`);
+    } else {
+      console.warn(`[TripDetail] initialAction card NOT found: ${initialAction}`);
+    }
+  }, [initialAction, currentTripIndex, plan]);
 
   // Check for First-Time Setup
   React.useEffect(() => {
@@ -150,12 +227,24 @@ export default function TripDetail({ route, navigation }: any) {
         const setupShownKey = '@travelbuddy_setup_prompt_shown';
         const hasShown = await AsyncStorage.getItem(setupShownKey);
 
-        if (!hasShown) {
-          // Add a small delay so it doesn't pop up instantly over transitions
-          setTimeout(() => {
-            setShowOnboardingModal(true);
-          }, 1000);
+        // EXTRA SECURITY: If user already has non-default settings, skip onboarding
+        // Default values from jetLagAlgorithm.ts are 22:00 and 07:00
+        const isAlreadyConfigured =
+          userSettings.normalBedtime !== '22:00' ||
+          userSettings.normalWakeTime !== '07:00';
+
+        if (hasShown === 'true' || isAlreadyConfigured) {
+          if (isAlreadyConfigured && hasShown !== 'true') {
+            console.log('[TripDetail] Profile already configured, skipping onboarding and persisting flag.');
+            await AsyncStorage.setItem(setupShownKey, 'true');
+          }
+          return;
         }
+
+        // Add a small delay so it doesn't pop up instantly over transitions
+        setTimeout(() => {
+          setShowOnboardingModal(true);
+        }, 1000);
       } catch (error) {
         console.error('Error checking onboarding status:', error);
       }
@@ -222,20 +311,6 @@ export default function TripDetail({ route, navigation }: any) {
       // Update the trips array with the modified trip
       updatedTrips[currentTripIndex] = updatedTrip;
 
-      // Check for missed connection with next segment
-      if (segmentIndex < updatedSegments.length - 1) {
-        const nextSegment = updatedSegments[segmentIndex + 1];
-        const nextDepartTime = moment(`${nextSegment.departDate} ${nextSegment.departTime}`, 'YYYY-MM-DD HH:mm');
-
-        if (segArrive.isAfter(nextDepartTime)) {
-          // Show conflict modal for missed connection
-          setConflictMessage(`This delay causes you to miss your connecting flight from ${segment.to} to ${nextSegment.to}.`);
-          setPendingUpdateTrips(updatedTrips); // FIX: successfuly passing full trips array
-          setShowConflictModal(true);
-          return;
-        }
-      }
-
       // Update trip-level times if first or last segment
       let tripDepartDate = tripToUpdate.departDate;
       let tripDepartTime = tripToUpdate.departTime;
@@ -260,6 +335,22 @@ export default function TripDetail({ route, navigation }: any) {
         arriveTime: tripArriveTime,
         segments: updatedSegments,
       };
+
+      // Check for missed connection with next segment
+      if (segmentIndex < updatedSegments.length - 1) {
+        const nextSegment = updatedSegments[segmentIndex + 1];
+        const nextDepartTime = moment(`${nextSegment.departDate} ${nextSegment.departTime}`, 'YYYY-MM-DD HH:mm');
+
+        if (segArrive.isAfter(nextDepartTime)) {
+          // Show conflict modal for missed connection.
+          // pendingUpdateTrips is set AFTER the trip-level time sync above so that
+          // "Update Anyway" saves correct departure/arrival on the trip summary too.
+          setConflictMessage(`This delay causes you to miss your connecting flight from ${segment.to} to ${nextSegment.to}.`);
+          setPendingUpdateTrips(updatedTrips);
+          setShowConflictModal(true);
+          return;
+        }
+      }
 
       // Check for conflict with next trip (only if last segment was delayed)
       if (segmentIndex === updatedSegments.length - 1) {
@@ -367,7 +458,7 @@ export default function TripDetail({ route, navigation }: any) {
         await AsyncStorage.setItem(viewCountKey, newViewCount.toString());
 
         // Check conditions: within 72 hours OR 3+ views
-        const trip = plan.trips[currentTripIndex];
+
         const depTz = trip.fromTz || getCityTimezone(trip.from);
         const hoursUntilDeparture = moment.tz(`${trip.departDate} ${trip.departTime}`, 'YYYY-MM-DD HH:mm', depTz).diff(moment.tz(depTz), 'hours');
         const within72Hours = hoursUntilDeparture <= 72 && hoursUntilDeparture >= 0;
@@ -454,7 +545,7 @@ export default function TripDetail({ route, navigation }: any) {
   React.useEffect(() => {
     if (activePhase === 'adjust') {
       const currentTrip = plan.trips[currentTripIndex];
-      const inWindow = isWithinArrivalWindow(currentTrip);
+      const inWindow = isWithinArrivalWindow(currentTrip, userSettings.normalBedtime);
 
       console.log('[TripDetail] Popup Check:', {
         inWindow,
@@ -506,7 +597,10 @@ export default function TripDetail({ route, navigation }: any) {
 
     let curr = start.clone();
     while (curr.isSameOrBefore(end, 'day')) {
-      dates.push(curr.format('YYYY-MM-DD'));
+      const dateStr = curr.format('YYYY-MM-DD');
+      if (dateStr && dateStr !== 'Invalid date') {
+        dates.push(dateStr);
+      }
       curr.add(1, 'day');
     }
 
@@ -519,8 +613,14 @@ export default function TripDetail({ route, navigation }: any) {
   React.useEffect(() => {
     const dates = getDatesForPhase(activePhase);
     if (dates.length > 0) {
-      // For Prepare AND Adjust phases, always default to the first date if not set or invalid
-      // This prevents "Show All" (null) which would be overwhelming with unrolled daily cards
+      // For Prepare AND Adjust phases, prioritize initial notification focus
+      if (isInitialFocusRef.current && selectedDate && dates.includes(selectedDate)) {
+        console.log(`[TripDetail] Skipping date reset to preserve notification focus: ${selectedDate}`);
+        isInitialFocusRef.current = false; // Consume the focus
+        return;
+      }
+
+      // Default behavior: reset to first date
       if (activePhase === 'prepare' || activePhase === 'adjust') {
         if (!selectedDate || !dates.includes(selectedDate)) {
           setSelectedDate(dates[0]);
@@ -528,7 +628,8 @@ export default function TripDetail({ route, navigation }: any) {
       } else {
         setSelectedDate(null);
       }
-    } else {
+    }
+    else {
       setSelectedDate(null);
     }
   }, [activePhase, currentTripIndex]);
@@ -543,6 +644,15 @@ export default function TripDetail({ route, navigation }: any) {
 
     // Update the plan in context (triggers regeneration)
     updatePlan(plan.id, plan.name, updatedTrips);
+
+    // UX: If exhausted, automatically switch to the arrival day so the user sees the recovery advice immediately
+    if (status === 'exhausted') {
+      const arriveDateString = updatedTrips[currentTripIndex].arriveDate;
+      if (arriveDateString) {
+        setSelectedDate(arriveDateString);
+      }
+    }
+
     setShowExhaustionModal(false);
   };
 
@@ -558,9 +668,25 @@ export default function TripDetail({ route, navigation }: any) {
       }
     }
 
-    // 2. Next Phase?
+    // 2. Next Phase / Next Trip logic
     if (activePhase === 'prepare') return { label: "Start Travel", type: 'phase', target: 'travel' };
-    if (activePhase === 'travel') return { label: "Start Adjustment", type: 'phase', target: 'adjust' };
+
+    if (activePhase === 'travel') {
+      // FOR STAY HOME TRIPS: Adjustment is merged into travel, so skip the explicit "Adjust" phase.
+      if (tripPlan?.strategy === 'stay_home') {
+        if (currentTripIndex < plan.trips.length - 1) {
+          return { label: "Next Flight", type: 'trip', target: currentTripIndex + 1 };
+        }
+        return { label: "Return to Plans", type: 'finish' };
+      }
+      return { label: "Start Adjustment", type: 'phase', target: 'adjust' };
+    }
+
+    if (activePhase === 'adjust') {
+      if (currentTripIndex < plan.trips.length - 1) {
+        return { label: "Next Flight", type: 'trip', target: currentTripIndex + 1 };
+      }
+    }
 
     // 3. End of Plan
     return { label: "Return to Plans", type: 'finish' };
@@ -574,6 +700,13 @@ export default function TripDetail({ route, navigation }: any) {
       // Optional: scroll to top
     } else if (type === 'phase') {
       setActivePhase(target as any);
+    } else if (type === 'trip') {
+      // Switch trips and reset to Travel phase (merged view)
+      setCurrentTripIndex(target as number);
+      setActivePhase('travel');
+      setSelectedDate(null);
+      // Ensure we scroll to top when switching trips
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
     } else {
       navigation.navigate('MainTabs', { screen: 'Plans' });
     }
@@ -1089,8 +1222,6 @@ export default function TripDetail({ route, navigation }: any) {
 
 
 
-  const trip: Trip = plan.trips[currentTripIndex];
-  const tripPlan: JetLagPlan = plan.jetLagPlans[currentTripIndex];
   const currentPhase = tripPlan.phases[activePhase];
 
   // FIX #1: Get phase header text without single-date filtering
@@ -1124,7 +1255,7 @@ export default function TripDetail({ route, navigation }: any) {
       // MERGE LOGIC: If strategy is 'stay_home' AND NOT suppressed, and we are looking at 'travel' phase,
       // append the 'adjust' phase cards to the end of the list.
       if (tripPlan.strategy === 'stay_home' && !tripPlan.suppressAdjustPhase && activePhase === 'travel') {
-        const adjustCards = tripPlan.phases.adjust.cards.filter(c =>
+        const adjustCards = tripPlan.phases.adjust.cards.filter((c: Card) =>
           !c.title.includes('Arrival Day')
         );
         cards = [...cards, ...adjustCards];
@@ -1305,6 +1436,34 @@ export default function TripDetail({ route, navigation }: any) {
         </View>
       )}
 
+      {/* Post-Trip Feedback Banner */}
+      {(() => {
+        const hasRating = outcomeRatings.some(r => r.planId === plan.id && r.tripIndex === currentTripIndex);
+        if (hasRating) return null;
+
+        const adjPhase = tripPlan.phases.adjust;
+        if (!adjPhase?.endDate) return null;
+
+        // Banner shows if 24 hours have passed since adjust phase ended
+        const feedbackTriggerTime = moment.tz(adjPhase.endDate, tripPlan.phases.adjust.name === 'adjust' ? (trip.toTz || getCityTimezone(trip.to)) : trip.fromTz).add(24, 'hours');
+        if (moment().isBefore(feedbackTriggerTime)) return null;
+
+        return (
+          <TouchableOpacity
+            style={[styles.feedbackBanner, { backgroundColor: isDark ? '#1E3A5F' : '#E0F2FE' }]}
+            onPress={() => setShowFeedbackModal(true)}
+          >
+            <View style={styles.feedbackBannerContent}>
+              <Icon name="award" size={20} color={isDark ? '#5EDAD9' : '#0369A1'} />
+              <Text style={[styles.feedbackBannerText, { color: isDark ? '#FFFFFF' : '#0369A1' }]}>
+                How was your recovery? Tell us to help tailor your next plan.
+              </Text>
+              <Icon name="chevron-right" size={18} color={isDark ? '#94A3B8' : '#0369A1'} style={{ marginLeft: 'auto' }} />
+            </View>
+          </TouchableOpacity>
+        );
+      })()}
+
       {/* ────── Trip Navigation Arrows ────── */}
       {
         plan.trips.length > 1 && (
@@ -1417,7 +1576,12 @@ export default function TripDetail({ route, navigation }: any) {
       {/* ────── Prepare/Adjust Phase Sub-Tabs ────── */}
       {(activePhase === 'prepare' || activePhase === 'adjust') && getDatesForPhase(activePhase).length > 1 && (
         <View style={[styles.prepareDateTabsContainer, { backgroundColor: colors.bg, borderBottomColor: 'transparent' }]}>
-          <View style={styles.prepareDateTabsScroll}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.prepareDateTabsScroll}
+            contentContainerStyle={{ flexDirection: 'row', gap: 8, paddingHorizontal: 16 }}
+          >
             {getDatesForPhase(activePhase).map((dateStr) => {
               const mom = moment(dateStr);
               const isActive = selectedDate === dateStr;
@@ -1448,7 +1612,7 @@ export default function TripDetail({ route, navigation }: any) {
                 </TouchableOpacity>
               );
             })}
-          </View>
+          </ScrollView>
         </View>
       )}
 
@@ -1622,7 +1786,7 @@ export default function TripDetail({ route, navigation }: any) {
                   )}
 
                   {/* Actions */}
-                  {!card.isInfo && status === 'active' && card.id !== 'conflict-warning' && (
+                  {!card.isInfo && status === 'active' && !card.id.startsWith('conflict-warning') && (
                     <View style={styles.cardActions}>
                       <TouchableOpacity
                         style={[styles.skipButton, { backgroundColor: theme.skipBg } as ViewStyle]}
@@ -1651,7 +1815,10 @@ export default function TripDetail({ route, navigation }: any) {
       )}
 
       {/* ────── Cards Section ────── */}
-      <ScrollView style={[styles.scrollView, { backgroundColor: colors.bg }]} contentContainerStyle={{ paddingBottom: 40, paddingTop: flightCard ? 6 : 0 }}
+      <ScrollView
+        ref={scrollViewRef}
+        style={[styles.scrollView, { backgroundColor: colors.bg }]}
+        contentContainerStyle={{ paddingBottom: 40, paddingTop: flightCard ? 6 : 0 }}
         showsVerticalScrollIndicator={false}
       >
 
@@ -1690,7 +1857,7 @@ export default function TripDetail({ route, navigation }: any) {
                   (card.isInfo || card.title.includes('Routine')) && styles.cardInfo  // Check for "Routine" instead
                 ]}
                 onPress={() => {
-                  if (card.id === 'conflict-warning') {
+                  if (card.id.startsWith('conflict-warning')) {
                     navigation.navigate('AddTrips', {
                       mode: 'edit',
                       planName: plan.name,
@@ -1704,7 +1871,7 @@ export default function TripDetail({ route, navigation }: any) {
                     toggleCard(card.id);
                   }
                 }}
-                disabled={card.isInfo && card.id !== 'conflict-warning'}
+                disabled={card.isInfo && !card.id.startsWith('conflict-warning')}
                 activeOpacity={0.9}
               >
                 {/* Status badge */}
@@ -1813,7 +1980,7 @@ export default function TripDetail({ route, navigation }: any) {
                 )}
 
                 {/* Actions - only show if active and not conflict warning */}
-                {!card.isInfo && status === 'active' && card.id !== 'conflict-warning' && (
+                {!card.isInfo && status === 'active' && !card.id.startsWith('conflict-warning') && (
                   <View style={styles.cardActions}>
                     <TouchableOpacity
                       style={[styles.skipButton, { backgroundColor: theme.skipBg } as ViewStyle]}
@@ -1915,6 +2082,7 @@ export default function TripDetail({ route, navigation }: any) {
       {/* Post Trip Feedback Modal */}
       <PostTripFeedback
         planId={plan.id}
+        tripIndex={currentTripIndex}
         isVisible={showFeedbackModal}
         onClose={() => setShowFeedbackModal(false)}
       />
@@ -2273,6 +2441,28 @@ const styles: { [key: string]: StyleProp<ViewStyle | TextStyle> } = StyleSheet.c
     fontFamily: 'Jua',
     fontSize: 16, // Match View Full Plan text size
     color: '#FFFFFF',
+  },
+  feedbackBanner: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 0,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  feedbackBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  feedbackBannerText: {
+    fontFamily: 'Jua',
+    fontSize: 14,
+    marginLeft: 12,
+    flex: 1,
   },
 });
 

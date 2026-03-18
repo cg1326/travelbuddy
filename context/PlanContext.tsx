@@ -12,13 +12,17 @@ import type {
   Plan,
   HITLSuggestion,
   OutcomeRating,
+  PlanEditEvent,
 } from '../types/models';
-import moment from 'moment';
+import moment from 'moment-timezone';
 import { startPersistentNotificationUpdater, stopPersistentNotification } from '../utils/notificationScheduler';
 import {
+  getOutcomeRatings,
   getHITLQueue,
   dismissHITLSuggestion as dismissSuggestionAPI,
   submitOutcomeRating as submitRatingAPI,
+  recordEditEvent as recordEditEventAPI,
+  pruneHITLQueue,
 } from '../utils/preferenceEngine';
 
 interface PlanContextType {
@@ -29,7 +33,7 @@ interface PlanContextType {
   deletePlan: (id: string) => void;
   setActivePlan: (id: string) => void;
   getActivePlan: () => Plan | undefined;
-  updateUserSettings: (settings: UserSettings) => void;
+  updateUserSettings: (settings: Partial<UserSettings>) => void;
   isLoading: boolean;
   cardStatuses: Record<string, string>;
   updateCardStatus: (planId: string, cardId: string, status: 'active' | 'done' | 'skipped') => void;
@@ -37,7 +41,9 @@ interface PlanContextType {
   hitlQueue: HITLSuggestion[];
   dismissHITLSuggestion: (id: string) => Promise<void>;
   submitOutcomeRating: (rating: OutcomeRating) => Promise<void>;
+  outcomeRatings: OutcomeRating[];
   refreshHITLQueue: () => Promise<void>;
+  recordEditEvent: (event: PlanEditEvent) => Promise<void>;
 }
 
 const PlanContext = createContext<PlanContextType | undefined>(undefined);
@@ -49,7 +55,7 @@ const STORAGE_KEYS = {
 
 // Algorithm version for smart plan regeneration
 // Increment this when the jet lag algorithm logic changes
-const ALGORITHM_VERSION = '1.0.2'; // Fixes short trip adjustment logic (Seattle -> Vancouver)
+const ALGORITHM_VERSION = '1.1.1'; // Refined Sunlight Advice Logic (Lock in Rhythm only on last day)
 
 
 
@@ -59,6 +65,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const [cardStatuses, setCardStatuses] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [hitlQueue, setHitlQueue] = useState<HITLSuggestion[]>([]);
+  const [outcomeRatings, setOutcomeRatings] = useState<OutcomeRating[]>([]);
 
   const refreshHITLQueue = async () => {
     const queue = await getHITLQueue();
@@ -71,7 +78,14 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   };
 
   const submitOutcomeRating = async (rating: OutcomeRating) => {
-    await submitRatingAPI(rating, plans);
+    await submitRatingAPI(rating, plans, userSettings);
+    const updatedRatings = await getOutcomeRatings();
+    setOutcomeRatings(updatedRatings);
+    await refreshHITLQueue();
+  };
+
+  const recordEditEvent = async (event: PlanEditEvent) => {
+    await recordEditEventAPI(event, userSettings);
     await refreshHITLQueue();
   };
 
@@ -97,18 +111,24 @@ export function PlanProvider({ children }: { children: ReactNode }) {
 
   const loadData = async () => {
     try {
-      const [plansData, settingsData, statusesData] = await Promise.all([
+      const [plansData, settingsData, statusesData, ratingsData] = await Promise.all([
         AsyncStorage.getItem(STORAGE_KEYS.PLANS),
         AsyncStorage.getItem(STORAGE_KEYS.USER_SETTINGS),
         AsyncStorage.getItem('@travelbuddy_card_statuses'),
+        AsyncStorage.getItem('@travelbuddy_outcome_ratings'),
       ]);
+
+      if (ratingsData) {
+        setOutcomeRatings(JSON.parse(ratingsData));
+      }
 
       let currentSettings = getDefaultUserSettings();
 
       if (settingsData) {
         const parsedSettings = JSON.parse(settingsData);
-        currentSettings = parsedSettings;
-        setUserSettings(parsedSettings);
+        const mergedSettings = { ...getDefaultUserSettings(), ...parsedSettings };
+        currentSettings = mergedSettings;
+        setUserSettings(mergedSettings);
       }
 
       let activePlans: Plan[] = [];
@@ -237,15 +257,29 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const updateUserSettings = (settings: UserSettings) => {
-    setUserSettings(settings);
-    // Regenerate jet lag plans for all existing plans with new settings
-    const updatedPlans = plans.map(plan => ({
-      ...plan,
-      jetLagPlans: plan.trips.map(trip =>
-        generateJetLagPlan(trip, plan.trips, settings)
-      )
-    }));
+  const updateUserSettings = async (settings: Partial<UserSettings>) => {
+    // Merge new partial settings with our existing settings
+    const newSettings = { ...userSettings, ...settings };
+    setUserSettings(newSettings);
+
+    // [Personalization Cleanup] Prune any HITL suggestions that are now redundant
+    await pruneHITLQueue(newSettings);
+    await refreshHITLQueue();
+
+    // Only regenerate current and future plans — preserve past trip history
+    const today = moment().format('YYYY-MM-DD');
+    const updatedPlans = plans.map(plan => {
+      // If every trip in this plan has already arrived, it's a past plan — don't touch it
+      const isPastPlan = plan.trips.every(trip => trip.arriveDate < today);
+      if (isPastPlan) return plan;
+
+      return {
+        ...plan,
+        jetLagPlans: plan.trips.map(trip =>
+          generateJetLagPlan(trip, plan.trips, newSettings)
+        )
+      };
+    });
     setPlans(updatedPlans);
 
     // Update notifications with regenerated plans
@@ -458,7 +492,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       hitlQueue,
       dismissHITLSuggestion,
       submitOutcomeRating,
-      refreshHITLQueue
+      outcomeRatings,
+      refreshHITLQueue,
+      recordEditEvent
     }}>
       {children}
     </PlanContext.Provider>

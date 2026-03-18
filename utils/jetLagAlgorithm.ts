@@ -27,7 +27,7 @@ export type TripPlan = JetLagPlan;
 
 // HELPER: Safely construct a bedtime moment, adding 1 day if it's past midnight (early morning)
 // This fixes the issue where a 12 AM bedtime is treated as the START of the day instead of the end.
-function safelyGetBedtimeMoment(dateStr: string, timeStr: string, tz: string): moment.Moment {
+export function safelyGetBedtimeMoment(dateStr: string, timeStr: string, tz: string): moment.Moment {
   let mom = moment.tz(`${dateStr} ${timeStr}`, 'YYYY-MM-DD HH:mm', tz);
   // If the time is essentially "late night" (00:00 - 05:00), it belongs to the NEXT calendar day relative to the "routine day".
   // Example: "Bedtime for Jan 31" is 12:30 AM. This means 12:30 AM on Feb 1.
@@ -52,6 +52,12 @@ export const JetLagConfig = {
   SHORT_NAP_MINUTES: 20,
   MIN_TIMEZONE_DIFF_HOURS: 1, // Minimum diff to trigger any advice
   SMALL_TIMEZONE_DIFF_HOURS: 3, // Diff that triggers partial adjustment logic
+
+  // Gradual Adjustment Constants
+  MAX_ADJUST_WAKE_SHIFT: 4.0, // Max hours wake time can shift from normal
+  MAX_ADJUST_BED_SHIFT: 2.0,  // Max hours bedtime can shift from normal
+  HUMAN_RANGE_WAKE: [4, 13],  // Absolute range [min, max] for suggested wake hour
+  HUMAN_RANGE_BED: [19, 4],   // Absolute range [min, max] for suggested bedtime hour
 };
 
 
@@ -928,7 +934,13 @@ export function calculateTimezoneDiff(from: string, to: string, date: string, fr
   const offsetFrom = dateInFrom.utcOffset();
   const offsetTo = dateInTo.utcOffset();
 
-  return (offsetTo - offsetFrom) / 60;
+  const rawDiff = (offsetTo - offsetFrom) / 60;
+
+  // Normalize to shortest path: always use the smaller arc around the globe.
+  // e.g.  NYC→Beijing = +13h raw, but -11h westward is biologically the correct shorter path.
+  if (rawDiff > 12) return rawDiff - 24;
+  if (rawDiff < -12) return rawDiff + 24;
+  return rawDiff;
 }
 
 function getDirection(tzDiff: number): 'east' | 'west' {
@@ -1204,7 +1216,39 @@ export function generateJetLagPlan(
     ? lastSegment.arriveDate
     : departMoment.clone().add(1, 'days').format('YYYY-MM-DD');
 
-  let adjustEndDateCalculated = moment(adjustStartDate).add(2, 'days').format('YYYY-MM-DD');
+  // ============================================
+  // LEVER A: RECOVERY SPEED MULTIPLIER
+  // Only applied when Smart Preferences is active
+  // ============================================
+  let multiplier = 1.0;
+  if (userSettings.personalizationActive) {
+    if (direction === 'east' && userSettings.recoveryMultiplierEast !== undefined) {
+      multiplier = userSettings.recoveryMultiplierEast;
+    } else if (direction === 'west' && userSettings.recoveryMultiplierWest !== undefined) {
+      multiplier = userSettings.recoveryMultiplierWest;
+    }
+  }
+
+  let adjustmentDuration = 3;
+  // Adaptive duration logic (gradual scaling based on timezone jump)
+  // ONLY applied if 'Smart Preferences' is active. 
+  // If OFF, we revert to the standard legacy default (Arrival + 2 days = 3 total days).
+  if (userSettings.personalizationActive && adjustmentStrategy.percentage > 0 && hoursDiff >= JetLagConfig.MIN_TIMEZONE_DIFF_HOURS) {
+    const tzDiffHours = Math.abs(hoursDiff);
+    const baselineDays = Math.max(3, Math.ceil(tzDiffHours / 2));
+    const minDays = (multiplier < 1)
+      ? 2  // Allow personalization to reduce below the standard safety floor
+      : Math.max(2, Math.ceil(tzDiffHours / 2.5));
+    const maxDays = 7;
+    const finalDaysRaw = Math.round(baselineDays * multiplier);
+    adjustmentDuration = Math.min(Math.max(finalDaysRaw, minDays), maxDays);
+    console.log(`[HITL] Adaptive duration applied: tzDiff: ${tzDiffHours}, base: ${baselineDays}, mult: ${multiplier}, duration: ${adjustmentDuration}`);
+  } else if (!userSettings.personalizationActive) {
+    console.log(`[HITL] Smart Preferences OFF: Using legacy 3-day adjustment duration.`);
+  }
+
+  // Calculate the end date by adding (duration - 1) full days to the start date
+  let adjustEndDateCalculated = moment(adjustStartDate).add(adjustmentDuration - 1, 'days').format('YYYY-MM-DD');
 
   // FIX: If bedtime is after midnight (00:01-04:59), extend adjust end date by 1 day
   // This ensures the sleep card for the last adjust day (which falls on the next calendar day)
@@ -1317,27 +1361,6 @@ export function generateJetLagPlan(
     minCardTime // Pass calculated previous arrival time
   );
 
-  // ============================================
-  // LEVER A: RECOVERY SPEED MULTIPLIER
-  // ============================================
-  let multiplier = 1.0;
-  if (direction === 'east' && userSettings.recoveryMultiplierEast !== undefined) {
-    multiplier = userSettings.recoveryMultiplierEast;
-  } else if (direction === 'west' && userSettings.recoveryMultiplierWest !== undefined) {
-    multiplier = userSettings.recoveryMultiplierWest;
-  }
-
-  let adjustmentDuration = 3;
-  if (adjustmentStrategy.percentage > 0 && hoursDiff >= JetLagConfig.MIN_TIMEZONE_DIFF_HOURS) {
-    const tzDiffHours = Math.abs(hoursDiff);
-    const baselineDays = Math.max(3, Math.ceil(tzDiffHours / 2));
-    const minDays = Math.max(2, Math.ceil(tzDiffHours / 2.5));
-    const maxDays = 7;
-    const finalDaysRaw = Math.round(baselineDays * multiplier);
-    adjustmentDuration = Math.min(Math.max(finalDaysRaw, minDays), maxDays);
-    console.log(`[HITL] tzDiff: ${tzDiffHours}, base: ${baselineDays}, mult: ${multiplier}, duration: ${adjustmentDuration}`);
-  }
-
   // NEW: Calculate Truncated Adjust End Date to prevent overlap with Next Trip's Prepare Phase
   let truncatedAdjustEndDate = adjustEndDateCalculated;
 
@@ -1381,6 +1404,10 @@ export function generateJetLagPlan(
     console.log('🔍 No next trip - adjust cards will not be filtered');
   }
 
+  // Ensure generateAdjustCards uses the actual truncated duration so convergence reaches 1.0 (normal)
+  // on the user's actual final day in this city.
+  const actualDuration = moment(truncatedAdjustEndDate).diff(moment(adjustStartDate), 'days') + 1;
+
   const adjustCards = generateAdjustCards(
     trip,
     direction,
@@ -1394,9 +1421,21 @@ export function generateJetLagPlan(
     circadianOriginTz,
     minCardTime,
     nextTripDepartTime,
-    adjustmentDuration
+    actualDuration
   );
 
+  // FINAL CLEANUP: Ensure phase ends on the logical day of the last card.
+  // This prevents "blank pills" in the UI if a calendar day exists in the range but has no logically-assigned cards.
+  if (adjustCards.length > 0) {
+    const lastCard = adjustCards[adjustCards.length - 1]; // Already sorted in generator
+    if (lastCard.dateTime) {
+      const destTz = trip.toTz || getCityTimezone(trip.to);
+      const lastLogical = getLogicalDateForEnd(moment(lastCard.dateTime), destTz);
+      if (moment(lastLogical).isBefore(moment(truncatedAdjustEndDate))) {
+        truncatedAdjustEndDate = lastLogical;
+      }
+    }
+  }
 
   return {
     tripId: trip.id,
@@ -1434,6 +1473,17 @@ export function generateJetLagPlan(
     suppressPreparePhase: hasOverlapWithPrevTrip,
     suppressAdjustPhase: suppressAdjustPhase,
   };
+}
+
+// FIX: Helper to get the "logical date" for a moment, strictly matching the UI's 5 AM rule.
+// This ensures phase boundaries in the algorithm align perfectly with how cards are grouped in the UI.
+function getLogicalDateForEnd(m: moment.Moment, tz: string): string {
+  const mom = moment.tz(m, tz);
+  // If it's early morning (before 5 AM), logical date is the previous day
+  if (mom.hour() < 5) {
+    return mom.clone().subtract(1, 'day').format('YYYY-MM-DD');
+  }
+  return mom.format('YYYY-MM-DD');
 }
 
 /**
@@ -2871,6 +2921,8 @@ export function generateAdjustCards(
       trip.toTz || getCityTimezone(trip.to)
     );
 
+  const arrivalDate = landingMoment.format('YYYY-MM-DD');
+
   // TRIGGER: Connection Conflict / Negative Duration Check
   // Forward check: If there is a next trip, and we arrive AFTER it departs, the plan is invalid.
   if (nextTrip) {
@@ -3002,9 +3054,11 @@ export function generateAdjustCards(
     const napStartHour = napStartMoment.hour();
 
     // Only suggest nap if start time is reasonably during the day (6 AM - 4 PM)
-    // This prevents "Night Naps" (e.g. 12:30 AM) caused by late check-ins wrapping to next day
-    // or very early morning arrivals where they should just sleep.
+    // AND it's not in the past relative to the arrival day loop.
     if (napStartHour >= 6 && napStartHour < 16) {
+      // Ensure the nap is generated for the day it was recorded
+      const recordedDay = recordedAt ? recordedAt.tz(destTz).format('YYYY-MM-DD') : arrivalDate;
+
       cards.push({
         id: `adjust-arrival-nap-${trip.id}`,
         title: 'Priority: Recovery Nap',
@@ -3203,7 +3257,7 @@ export function generateAdjustCards(
     }
   }
 
-  const arrivalDate = landingMoment.format('YYYY-MM-DD');
+
 
 
   // Evening meal and sleep guidance - conditional based on arrival time
@@ -3232,7 +3286,7 @@ export function generateAdjustCards(
     if (shouldSleepNow) {
       cards.push({
         id: `adjust-arrival-sleep-now-${trip.id}`,
-        title: 'Head to Bed Soon',
+        title: isExhausted ? 'Priority: Head to Bed Soon' : 'Head to Bed Soon',
         time: 'As soon as you can',
         icon: '🌙',
         color: '#1C5D74',
@@ -3284,11 +3338,27 @@ export function generateAdjustCards(
         trip.toTz || getCityTimezone(trip.to)
       );
 
-      // Calculate target bedtime based on exhaustion
-      // Exhausted: Normal - 1h. Standard: Normal.
-      let targetBedtime = isExhausted
-        ? arrivalBedtimeBase.clone().subtract(1, 'hour')
-        : arrivalBedtimeBase.clone();
+      // Calculate target bedtime based on exhaustion and gradual shift
+      // For large shifts (> 6h), we allow up to 2h deviation from normal on Night 0.
+      let nightZeroShift = 0;
+      if (Math.abs(hoursDiff) > 6) {
+        // Shift is proportional to diff, maxed at MAX_ADJUST_BED_SHIFT (2h)
+        const rawShift = (hoursDiff / 12) * JetLagConfig.MAX_ADJUST_BED_SHIFT;
+        nightZeroShift = Math.max(-JetLagConfig.MAX_ADJUST_BED_SHIFT, Math.min(JetLagConfig.MAX_ADJUST_BED_SHIFT, rawShift));
+      }
+
+      // EXHAUSTION CLAMP: If user is feeling drained, avoid shifting bedtime LATER.
+      if (isExhausted && nightZeroShift > 0 && direction === 'east') {
+        nightZeroShift = 0;
+      }
+
+      let targetBedtime = arrivalBedtimeBase.clone().add(nightZeroShift, 'hours');
+
+      // Layer exhaustion on top (Exhausted: -1h)
+      const isExhaustedFutureNight = isExhausted && (!trip.arrivalRestRecordedAt || moment(trip.arrivalRestRecordedAt).isBefore(targetBedtime));
+      if (isExhaustedFutureNight) {
+        targetBedtime.subtract(1, 'hour');
+      }
 
       // Calculate minimum allowed bedtime (Landing + 90 mins) to allow for transport/food
       const minBedtime = landingMoment.clone().add(90, 'minutes');
@@ -3306,17 +3376,19 @@ export function generateAdjustCards(
 
       cards.push({
         id: `adjust-arrival-sleep-${trip.id}`,
-        // FIX: Add "Priority:" prefix if exhausted to trigger the Peach color theme in TripDetails.tsx
-        title: isExhausted
+        // Priority trigger for Peach theme
+        title: isExhaustedFutureNight
           ? (isActuallyEarly ? 'Priority: Early Bedtime' : 'Priority: Sleep at Local Bedtime')
-          : 'Sleep at Local Bedtime',
+          : (isActuallyEarly ? 'Early Bedtime' : 'Sleep at Local Bedtime'),
         time: formatTime12Hour(targetBedtime.format('HH:mm')),
         icon: '🌙',
-        color: isExhausted ? '#FFE4D6' : '#1C5D74', // Algorithm color (backup)
-        why: isExhausted
+        color: isExhaustedFutureNight ? '#FFE4D6' : '#1C5D74',
+        why: isExhaustedFutureNight
           ? 'Since you\'re feeling drained, aim to sleep as soon as possible after settling in.'
-          : 'Getting to bed at a reasonable local time helps start your adjustment.',
-        how: isExhausted
+          : (Math.abs(hoursDiff) > 6
+            ? `Since you transitioned over ${Math.abs(hoursDiff).toFixed(0)} hours, we're starting your adjustment gradually to avoid extreme fatigue.`
+            : 'Getting to bed at a reasonable local time helps start your adjustment.'),
+        how: isExhaustedFutureNight
           ? `Push through until at least ${formatTime12Hour(targetBedtime.clone().subtract(30, 'minutes').format('HH:mm'))}, then crash. Don't go to bed too early or you'll wake up at 2 AM.`
           : `Try to sleep around ${formatTime12Hour(targetBedtime.format('HH:mm'))}. Keep room dark and cool.`,
         dateTime: targetBedtime.toISOString(),
@@ -3380,29 +3452,43 @@ export function generateAdjustCards(
       });
     }
 
+    const arrivalBedtimeMoment = safelyGetBedtimeMoment(arrivalDate, userSettings.normalBedtime, trip.toTz || getCityTimezone(trip.to));
+    const isExhaustedFuture = isExhausted && (!trip.arrivalRestRecordedAt || moment(trip.arrivalRestRecordedAt).isBefore(arrivalBedtimeMoment));
+
     if (adjustmentStrategy.percentage > 0) {
+      // Calculate semantic title and final time for exhausted daytime arrival
+      let finalBedtime = arrivalBedtimeMoment.clone();
+      if (isExhaustedFuture) {
+        finalBedtime.subtract(1, 'hour');
+      }
+
+      const isActuallyEarlyDay = finalBedtime.isBefore(arrivalBedtimeMoment.clone().subtract(29, 'minutes'));
+      const finalTitle = isExhaustedFuture
+        ? (isActuallyEarlyDay ? 'Priority: Early Bedtime' : 'Priority: Sleep at Local Bedtime')
+        : (isActuallyEarlyDay ? 'Early Bedtime' : 'Sleep at Local Bedtime');
+
       cards.push({
         id: `adjust-arrival-sleep-${trip.id}`,
-        title: isExhausted ? 'Early Bedtime' : 'Sleep at Local Time Tonight',
-        time: isExhausted
-          ? formatTime12Hour(moment(userSettings.normalBedtime, 'HH:mm').subtract(1, 'hour').format('HH:mm'))
-          : formatTime12Hour(userSettings.normalBedtime),
+        title: finalTitle,
+        time: formatTime12Hour(finalBedtime.format('HH:mm')),
         icon: '🌙',
-        color: '#1C5D74',
-        why: isExhausted
+        color: isExhaustedFuture ? '#FFE4D6' : '#1C5D74',
+        why: isExhaustedFuture
           ? 'Since you are feeling drained, aim for an early bedtime to catch up on rest while anchoring to local time.'
-          : 'Your first night in the new timezone. Sleeping at normal local bedtime is recommended even if not tired.',
-        how: isExhausted
-          ? `Push through until at least ${formatTime12Hour(moment(userSettings.normalBedtime, 'HH:mm').subtract(1.5, 'hours').format('HH:mm'))}, then crash. Don't go to bed too early or you'll wake up in the middle of the night.`
+          : (Math.abs(hoursDiff) > 6
+            ? `Since you transitioned over ${Math.abs(hoursDiff).toFixed(0)} hours, we're starting your adjustment gradually to avoid extreme fatigue tonight.`
+            : 'Your first night in the new timezone. Sleeping at normal local bedtime is recommended even if not tired.'),
+        how: isExhaustedFuture
+          ? `Push through until at least ${formatTime12Hour(finalBedtime.clone().subtract(30, 'minutes').format('HH:mm'))}, then crash. Don't go to bed too early or you'll wake up in the middle of the night.`
           : `Try to go to bed around ${userSettings.normalBedtime}. Keep room dark and cool.`,
-        dateTime: safelyGetBedtimeMoment(arrivalDate, userSettings.normalBedtime, trip.toTz || getCityTimezone(trip.to)).toISOString(),
+        dateTime: finalBedtime.toISOString(),
       });
 
       // Inject Melatonin/Magnesium for Day Arrival
-      let bedtimeMoment = safelyGetBedtimeMoment(arrivalDate, userSettings.normalBedtime, trip.toTz || getCityTimezone(trip.to));
+      let bedtimeMoment = arrivalBedtimeMoment.clone();
 
       // FIX: If exhausted, user is sleeping early (1 hour early). Supplements should shift too.
-      if (isExhausted) {
+      if (isExhaustedFuture) {
         bedtimeMoment.subtract(1, 'hour');
       }
 
@@ -3450,8 +3536,10 @@ export function generateAdjustCards(
   // ============================================
 
   // Ensure loop duration matches the plan's adjustmentDuration
-  // If duration is 3 (e.g. gap Jan 26-28), we need 2 days of routine (Jan 27, 28).
-  const adjustmentDays = Math.max(adjustmentDuration - 1, 1);
+  // If duration is 3 (e.g. gap Jan 26-28), we want a total of 3 days of adjustment coverage.
+  // For late night arrivals, the routine loop handles the arrival day itself, so we need the full duration.
+  // For normal arrivals, Day 1 starts tomorrow, so we still want enough days to reach the target end.
+  const adjustmentDays = isLateNightArrival ? adjustmentDuration : Math.max(adjustmentDuration - 1, 1);
 
   // Check if we should generate a daily adjustment routine
   // We SKIP this loop if:
@@ -3476,15 +3564,33 @@ export function generateAdjustCards(
 
       // CLAUDE MATH: Body Clock Shift
       const daysElapsed = i + 1;
-      const strictness = Math.min(daysElapsed / Math.max(adjustmentDuration, 1), 1.0);
-      const percentAdjusted = strictness;
+      const totalDays = adjustmentDays;
+      const progressFactor = daysElapsed / totalDays;
+      const percentAdjusted = progressFactor;
 
-      const unshiftedOffsetHours = hoursDiff * (1 - strictness);
+      // Base unshifted offset (shrinks to 0 over time)
+      const baseUnshiftedOffset = hoursDiff * (1 - progressFactor);
+
+      // === GRADUAL SHIFT CLAMPING ===
+      // Even if the body clock is far away, we restrict the suggested shift from 'normal' routine
+      // to keep things reasonable. Clamps shrink to 0 as we approach the final day.
+      const currentWakeClamp = JetLagConfig.MAX_ADJUST_WAKE_SHIFT * (1 - progressFactor);
+      const currentBedClamp = JetLagConfig.MAX_ADJUST_BED_SHIFT * (1 - progressFactor);
+
+      const unshiftedWakeOffset = Math.max(-currentWakeClamp, Math.min(currentWakeClamp, baseUnshiftedOffset));
+      const unshiftedBedOffset = Math.max(-currentBedClamp, Math.min(currentBedClamp, baseUnshiftedOffset));
 
       // === 1. Sunlight Advice ===
       const [wakeHour, wakeMinute] = userSettings.normalWakeTime.split(':').map(Number);
       const destWakeMoment = currentDayMoment.clone().hour(wakeHour).minute(wakeMinute);
-      const wakeMoment = destWakeMoment.clone().subtract(unshiftedOffsetHours, 'hours');
+      let wakeMoment = destWakeMoment.clone().add(unshiftedWakeOffset, 'hours');
+
+      // ABSOLUTE HUMAN RANGE CLAMP (Wake)
+      const minWakeHour = JetLagConfig.HUMAN_RANGE_WAKE[0];
+      const maxWakeHour = JetLagConfig.HUMAN_RANGE_WAKE[1];
+      if (wakeMoment.hour() < minWakeHour) wakeMoment.hour(minWakeHour).minute(0);
+      if (wakeMoment.hour() > maxWakeHour) wakeMoment.hour(maxWakeHour).minute(0);
+      wakeMoment = roundToNearest5(wakeMoment);
 
       const hasNaturalSunAdjust = isSunUp(wakeMoment, trip.to);
       const lightEndMoment = wakeMoment.clone().add(2, 'hours'); // 2 hours exposure
@@ -3493,20 +3599,23 @@ export function generateAdjustCards(
       let sunTitle = hasNaturalSunAdjust ? 'Seek Morning Sunlight' : 'Seek Light (Artificial if needed)';
       let sunWhy = 'Light exposure is the most powerful tool to lock in your new timezone.';
 
-      if (percentAdjusted < 0.5) {
+      const isLastDay = i === (adjustmentDays - 1);
+
+      if (isLastDay) {
+        sunTitle = hasNaturalSunAdjust ? 'Lock In Your Rhythm' : 'Lock In Your Rhythm (Artificial Light)';
+        sunWhy = 'You are fully adjusted. Morning light helps anchor your new schedule.';
+      } else {
         sunTitle = hasNaturalSunAdjust ? 'Get Sunlight When You Wake' : 'Get Morning Light (Artificial)';
         sunWhy = 'Your body is still catching up. Getting light immediately upon waking is critical to shift your rhythm.';
-      } else {
-        sunTitle = hasNaturalSunAdjust ? 'Lock In Your Rhythm' : 'Lock In Your Rhythm (Artificial Light)';
-        sunWhy = 'You are almost fully adjusted. Morning light helps anchor your new schedule.';
       }
 
       // Don't generate if wake time is super late (past noon)
       if (wakeHour < 12) {
+        const formattedWakeTime = formatTime12Hour(wakeMoment.format('HH:mm'));
         cards.push({
           id: `adjust-sun-${currentDayStr}`,
           title: sunTitle,
-          time: `${formatTime12Hour(userSettings.normalWakeTime)} - ${lightEndMoment.format('h:mm A')}`,
+          time: `${formattedWakeTime} - ${lightEndMoment.format('h:mm A')}`,
           icon: '☀️',
           color: '#FFF7C5',
           why: sunWhy,
@@ -3542,7 +3651,28 @@ export function generateAdjustCards(
         userSettings.normalBedtime,
         trip.toTz || getCityTimezone(trip.to)
       );
-      const targetBedtime = destBedMoment.clone().subtract(unshiftedOffsetHours, 'hours');
+      let bedtimeShift = unshiftedBedOffset;
+
+      // EXHAUSTION CLAMP: If user is feeling drained, prioritize recovery by not delaying bedtime.
+      // If the algorithm wants to shift bedtime later (East flight), we skip the shift for exhausted users.
+      if (trip.arrivalRestStatus === 'exhausted' && bedtimeShift > 0 && direction === 'east') {
+        bedtimeShift = 0;
+      }
+
+      let targetBedtime = destBedMoment.clone().add(bedtimeShift, 'hours');
+
+      // ABSOLUTE HUMAN RANGE CLAMP (Bedtime)
+      // Range: 19:00 (7 PM) to 04:00 (4 AM)
+      const bedHour = targetBedtime.hour();
+      const minBedHour = JetLagConfig.HUMAN_RANGE_BED[0]; // 19
+      const maxBedHour = JetLagConfig.HUMAN_RANGE_BED[1]; // 4
+
+      // If hour is between 4 and 19 (Daytime), clamp it
+      if (bedHour > maxBedHour && bedHour < minBedHour) {
+        if (bedHour <= 12) targetBedtime.hour(maxBedHour).minute(0);
+        else targetBedtime.hour(minBedHour).minute(0);
+      }
+      targetBedtime = roundToNearest5(targetBedtime);
 
       let cutoffMoment = targetBedtime.clone().subtract(9, 'hours');
 
@@ -3586,13 +3716,20 @@ export function generateAdjustCards(
       });
 
       // === 3. Bedtime (Body Relative Conflict Check?) ===
-      let sleepTitle = 'Sleep at Local Bedtime';
-      let sleepWhy = 'Consistency is key. Stick to your local schedule.';
-      const isExhaustedPhase = i === 0 && trip.arrivalRestStatus === 'exhausted';
+      // Determine strict title: Only call it "Early Bedtime" if it's actually early (e.g. at least 30m before normal)
+      const isActuallyEarly = targetBedtime.isBefore(destBedMoment.clone().subtract(29, 'minutes'));
 
+      const isExhaustedPhase = dayOffset === 0 && trip.arrivalRestStatus === 'exhausted' && !isLateNightArrival;
+
+      let finalTitle = isActuallyEarly ? 'Early Bedtime' : 'Sleep at Local Bedtime';
+      if (isExhaustedPhase) {
+        finalTitle = isActuallyEarly ? 'Priority: Early Bedtime' : 'Priority: Sleep at Local Bedtime';
+      }
+
+      let sleepWhy = 'Consistency is key. Stick to your local schedule.';
       if (percentAdjusted < 0.3 && !isExhaustedPhase) {
         // Early days -> Hard to sleep
-        sleepWhy = 'Your body might not be tired yet, but rest is important. Lie down and relax even if you can\'t sleep.';
+        sleepWhy = 'Your body is still in a major transition. We\'ve adjusted your bedtime slightly to make it easier to fall asleep while keeping you on a human schedule.';
         if (userSettings.useMelatonin) {
           sleepWhy += ' Melatonin can be particularly helpful tonight.';
         }
@@ -3605,10 +3742,12 @@ export function generateAdjustCards(
         sleepWhy += ` Note: For larger timezone shifts, full adjustment may take several more days. Continue this routine until you feel fully adapted.`;
       }
 
+      const formattedBedtime = formatTime12Hour(targetBedtime.format('HH:mm'));
+
       cards.push({
         id: `adjust-sleep-${currentDayStr}`,
-        title: sleepTitle,
-        time: formatTime12Hour(userSettings.normalBedtime),
+        title: finalTitle,
+        time: formattedBedtime,
         icon: '🌙',
         color: '#1C5D74',
         why: sleepWhy,
@@ -3906,5 +4045,6 @@ export function getDefaultUserSettings(): UserSettings {
     // chronotype: 'neither',
     useMelatonin: false,
     useMagnesium: false,
+    personalizationActive: false,
   };
 }

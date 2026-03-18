@@ -506,7 +506,7 @@ function MainApp() {
       return;
     }
 
-    const { planName, phase, cardId } = notification.data || {};
+    const { planName, phase, cardId, tripIndex } = notification.data || {};
     console.log('[App] Notification Tapped. Data:', notification.data);
 
     if (planName) {
@@ -518,6 +518,7 @@ function MainApp() {
       if (targetPlan) {
         navigationRef.current.navigate('TripDetail', {
           plan: targetPlan,
+          initialTripIndex: tripIndex !== undefined ? Number(tripIndex) : undefined,
           initialPhase: phase || 'today', // Use specific phase if provided, else default
           initialAction: cardId
         });

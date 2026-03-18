@@ -7,6 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 import moment from 'moment-timezone';
 import Icon from 'react-native-vector-icons/Feather';
 import { ProgressBar } from '../components/ProgressBar';
+
 import { getCityTimezone } from '../utils/jetLagAlgorithm';
 
 function formatTo12Hour(time24: string): string {
@@ -15,6 +16,7 @@ function formatTo12Hour(time24: string): string {
 }
 
 import ConfettiCannon from 'react-native-confetti-cannon';
+import HITLBanner from '../components/HITLBanner';
 
 
 export default function TodayView({ navigation }: any) {
@@ -61,12 +63,25 @@ export default function TodayView({ navigation }: any) {
         : trip;
       const arriveDate = moment(lastSegment.arriveDate);
 
-      const prepareStart = departDate.clone().subtract(2, 'days');
-      const adjustEnd = arriveDate.clone().add(2, 'days').endOf('day');
+      const jetLagPlan = plan.jetLagPlans[idx];
+      const prepareStart = jetLagPlan && jetLagPlan.phases.prepare
+        ? moment(jetLagPlan.phases.prepare.startDate)
+        : departDate.clone().subtract(2, 'days'); // Fallback
+
+      const adjustEnd = jetLagPlan && jetLagPlan.phases.adjust
+        ? moment(jetLagPlan.phases.adjust.endDate).endOf('day')
+        : arriveDate.clone().add(2, 'days').endOf('day'); // Fallback
 
       if (now.isAfter(adjustEnd)) return;
 
       const isWithinWindow = now.isBetween(prepareStart, adjustEnd, null, '[]');
+
+      // CHECK FOR CONFLICTS
+      // If this trip has a conflict, we want to prioritize showing it
+      const hasConflict = jetLagPlan && (
+        (jetLagPlan.phases.travel && jetLagPlan.phases.travel.cards.some((c: any) => c.id.startsWith('conflict-warning'))) ||
+        (jetLagPlan.phases.adjust && jetLagPlan.phases.adjust.cards.some((c: any) => c.id.startsWith('conflict-warning')))
+      );
 
       if (isWithinWindow) {
         if (departDate.isSameOrBefore(now)) {
@@ -200,7 +215,12 @@ export default function TodayView({ navigation }: any) {
 
   if (!activePlan || !currentTrip) {
     return (
-      <View style={[styles.emptyStateContainer, { backgroundColor: colors.bg }]}>
+      <View style={[styles.emptyStateContainer, { backgroundColor: colors.bg, justifyContent: 'center' }]}>
+        {/* Global Personalization Banner - Absolutely positioned at top */}
+        <View style={{ position: 'absolute', top: 60, left: 16, right: 16, zIndex: 10 }}>
+          <HITLBanner />
+        </View>
+
         <View style={styles.emptyStateContent}>
           <Text style={[styles.title, { color: colors.text }]}>No Upcoming Trips</Text>
           <Text style={[styles.subtitle, { color: colors.subtext }]}>Get started by creating your first travel plan!</Text>
@@ -225,8 +245,8 @@ export default function TodayView({ navigation }: any) {
 
   // Determine timezone from city name
   // Determine timezone from relevant cities
-  const departureTimezone = flightTrip.fromTz || getCityTimezone(flightTrip.from);
-  const destinationTimezone = flightTrip.toTz || getCityTimezone(flightTrip.to);
+  const departureTimezone = flightTrip.fromTz || getCityTimezone(flightTrip.from) || 'UTC';
+  const destinationTimezone = flightTrip.toTz || getCityTimezone(flightTrip.to) || 'UTC';
 
   const nowInDepartureCity = moment.tz(departureTimezone);
   const nowInDestination = moment.tz(destinationTimezone);
@@ -292,13 +312,10 @@ export default function TodayView({ navigation }: any) {
     currentPhase = 'travel';
   } else if (todayDate.isBetween(departureDateOnly, arrivalDateOnly, 'day', '()')) {
     currentPhase = 'travel';
-  } else if (todayDate.isSame(arrivalDateOnly, 'day') || todayDate.isAfter(arrivalDateOnly, 'day')) {
-    currentPhase = 'adjust';
-  }
-
-  // FIX: If flight has indeed landed (based on time), force adjust phase.
-  // This handles cases where flight arrives on same day as departure (which logic above sets to 'travel')
-  if (minutesSinceLanding > 0) {
+  } else if (todayDate.isSame(arrivalDateOnly, 'day')) {
+    // Precise arrival day logic: Stay in 'travel' until landing time
+    currentPhase = minutesSinceLanding > 0 ? 'adjust' : 'travel';
+  } else if (todayDate.isAfter(arrivalDateOnly, 'day')) {
     currentPhase = 'adjust';
   }
 
@@ -308,8 +325,18 @@ export default function TodayView({ navigation }: any) {
   // Filter cards to show only upcoming 0-4 hours
   // Include dailyRoutine cards in adjust phase, exclude info cards
   // Exclude skipped or completed cards
+  // CHECK FOR GLOBAL CONFLICTS IN THIS PLAN
+  // If ANY trip has a conflict, we suppress all advice and show only the warning.
+  const planConflictCard = currentTrip.phases.travel.cards.find((c: any) => c.id.startsWith('conflict-warning')) ||
+    currentTrip.phases.adjust.cards?.find((c: any) => c.id.startsWith('conflict-warning'));
+
   // FIX #2: Helper to get filtered cards from a specific phase
   const getFilteredCardsForPhase = (phaseName: string) => {
+    if (planConflictCard) {
+      // If there's a conflict, the only valid card for ANY phase is the conflict warning
+      return [planConflictCard];
+    }
+
     return currentTrip.phases[phaseName].cards.filter((card: any) => {
       // Always exclude info cards (headers, flight info)
       if (card.isInfo) return false;
@@ -460,7 +487,7 @@ export default function TodayView({ navigation }: any) {
 
     // Your Flight
     if (title.includes("your flight")) {
-      return { bg: '#DBEAFE', text: '#446084', label: '#3567a4' };
+      return { bg: '#C7F5E8', text: '#0D4C4A', label: '#0F766E' }; // Matches 'Teal' theme from TripDetails
     }
 
     // Flight segment cards
@@ -474,13 +501,18 @@ export default function TodayView({ navigation }: any) {
     }
 
     // Meals (Dinner / Light Meal) — CHECK BEFORE sunlight to avoid 'light meal' matching sunlight
-    if ((title.includes('eat ') || title.startsWith('eat')) || title.includes('dinner') || title.includes('meal')) {
+    if ((title.includes('eat ') || title.startsWith('eat')) || title.includes('dinner') || title.includes('meal') || title.includes('breakfast')) {
       return { bg: '#E6F5D0', text: '#3E5C41', label: '#3E5C41' };
     }
 
     // Sunlight / Light (but not "avoid")
     if ((title.includes("sunlight") || title.includes("light") || title.includes("sun")) && !title.includes("avoid")) {
       return { bg: '#FFF7C5', text: '#000000', label: '#F6CB60' };
+    }
+
+    // Lock In Rhythm - darker yellow (NEW: Syncing with TripDetails)
+    if (title.includes("lock in your rhythm") || title.includes("lock in rhythm")) {
+      return { bg: '#FDE68A', text: '#000000', label: '#854D0E' };
     }
 
     // Stay Awake
@@ -498,9 +530,9 @@ export default function TodayView({ navigation }: any) {
       return { bg: '#FFD4C4', text: '#5C3A2E', label: '#8B5A3C' };
     }
 
-    // Avoid / Nap warnings
-    if (title.includes('avoid') || title.includes('nap')) {
-      return { bg: '#F3F0ED', text: '#383430', label: '#68615b' };
+    // Avoid / Nap warnings / Fasting
+    if (title.includes('avoid') || title.includes('nap') || title.includes('fasting')) {
+      return { bg: '#F1F5F9', text: '#334155', label: '#64748B' };
     }
 
     // Default
@@ -536,7 +568,7 @@ export default function TodayView({ navigation }: any) {
     }
 
     // Sunlight / Light (but check after flight cards)
-    if (t.includes('sunlight') || (t.includes('light') && !t.includes('avoid'))) {
+    if (t.includes('sunlight') || (t.includes('light') && !t.includes('avoid')) || t.includes('lock in')) {
       return 'sun';
     }
 
@@ -657,6 +689,10 @@ export default function TodayView({ navigation }: any) {
             <Icon name="send" size={24} color={colors.text} />
           </View>
         )}
+
+        {/* Suggestion Banner Surface */}
+        <HITLBanner />
+
 
         {/* Progress Bar - only show if there's an active plan */}
         {activePlan && currentTrip && (

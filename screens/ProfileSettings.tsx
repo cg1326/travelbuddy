@@ -28,6 +28,8 @@ import {
   stopPersistentNotification
 } from '../utils/notificationScheduler';
 import PreferenceProfile from './PreferenceProfile';
+import PostTripFeedback from './PostTripFeedback';
+import { PREFERENCE_STORAGE_KEYS } from '../utils/preferenceEngine'; // TEMPORARY TEST
 
 export default function ProfileSettings() {
   const { userSettings, updateUserSettings, plans } = usePlans();
@@ -35,6 +37,7 @@ export default function ProfileSettings() {
 
   // Helper function to convert 24-hour to 12-hour format
   const format12Hour = (time24: string): string => {
+    if (!time24) return '';
     const [hours, minutes] = time24.split(':').map(Number);
     const period = hours >= 12 ? 'PM' : 'AM';
     const hours12 = hours % 12 || 12;
@@ -56,6 +59,8 @@ export default function ProfileSettings() {
 
   // Preference Profile Modal State
   const [showPreferenceModal, setShowPreferenceModal] = useState(false);
+
+
 
   // Notification settings state
   const [notifSettings, setNotifSettings] = useState<NotificationSettings>({
@@ -249,6 +254,9 @@ export default function ProfileSettings() {
             </Text>
           </View>
 
+
+
+
           <View style={styles.settingRow}>
             <View style={styles.settingTextContainer}>
               <Text style={[styles.settingLabel, { color: colors.text }]}>Melatonin</Text>
@@ -345,7 +353,7 @@ export default function ProfileSettings() {
             <View style={styles.settingTextContainer}>
               <Text style={[styles.settingLabel, { color: colors.text }]}>My Travel Style</Text>
               <Text style={[styles.settingSubtext, { color: colors.subtext }]}>
-                View and manage how TravelBuddy adapts to you
+                View and manage how travel buddy adapts to you
               </Text>
             </View>
             <Icon name="chevron-right" size={20} color={colors.subtext} />
@@ -403,14 +411,17 @@ export default function ProfileSettings() {
         onRequestClose={() => setShowPreferenceModal(false)}
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', padding: 16 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: 24, paddingTop: 20, paddingBottom: 8 }}>
             <TouchableOpacity onPress={() => setShowPreferenceModal(false)}>
-              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1E293B' }}>Done</Text>
+              <Text style={{ fontSize: 16, fontFamily: 'Jua', color: colors.text }}>Done</Text>
             </TouchableOpacity>
           </View>
           <PreferenceProfile />
         </SafeAreaView>
       </Modal>
+
+
+
     </View >
   );
 }
