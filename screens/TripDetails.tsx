@@ -23,7 +23,7 @@ import ConflictModal from '../components/ConflictModal';
 import OnboardingModal from '../components/OnboardingModal'; // Import OnboardingModal
 import PostTripFeedback from './PostTripFeedback';
 import HITLBanner from '../components/HITLBanner';
-import { getCityTimezone, safelyGetBedtimeMoment } from '../utils/jetLagAlgorithm';
+import { getCityTimezone, safelyGetBedtimeMoment, calculateTimezoneDiff } from '../utils/jetLagAlgorithm';
 import type { Card, Phase, JetLagPlan, Trip } from '../types/models';
 import moment from 'moment-timezone';
 import * as StoreReview from 'react-native-store-review';
@@ -701,9 +701,11 @@ export default function TripDetail({ route, navigation }: any) {
     } else if (type === 'phase') {
       setActivePhase(target as any);
     } else if (type === 'trip') {
-      // Switch trips and reset to Travel phase (merged view)
+      // Switch trips — land on prepare phase if it exists, otherwise travel
       setCurrentTripIndex(target as number);
-      setActivePhase('travel');
+      const nextTripPlan = plan?.jetLagPlans[target as number];
+      const hasPrepare = nextTripPlan?.phases?.prepare?.cards?.some((c: any) => !c.isInfo);
+      setActivePhase(hasPrepare ? 'prepare' : 'travel');
       setSelectedDate(null);
       // Ensure we scroll to top when switching trips
       scrollViewRef.current?.scrollTo({ y: 0, animated: true });
@@ -1441,8 +1443,13 @@ export default function TripDetail({ route, navigation }: any) {
         const hasRating = outcomeRatings.some(r => r.planId === plan.id && r.tripIndex === currentTripIndex);
         if (hasRating) return null;
 
+        const trip = plan.trips[currentTripIndex];
         const adjPhase = tripPlan.phases.adjust;
         if (!adjPhase?.endDate) return null;
+        if (tripPlan.strategy === 'stay_home' || trip?.adjustmentPreference === 'stay_home') return null;
+        if (tripPlan.suppressAdjustPhase) return null;
+        const tzDiffHours = Math.abs(calculateTimezoneDiff(trip.from, trip.to, trip.departDate, trip.fromTz, trip.toTz));
+        if (tzDiffHours < 4) return null;
 
         // Banner shows if 24 hours have passed since adjust phase ended
         const feedbackTriggerTime = moment.tz(adjPhase.endDate, tripPlan.phases.adjust.name === 'adjust' ? (trip.toTz || getCityTimezone(trip.to)) : trip.fromTz).add(24, 'hours');

@@ -45,8 +45,13 @@ function PlansScreen({ navigation }: any) {
     const upcoming = plans.filter(plan => {
       if (!plan.trips || plan.trips.length === 0) return false;
       const lastTrip = plan.trips[plan.trips.length - 1];
-      // Keep plan active until 2 days after arrival to include the shortened adjustment phase
-      const planEndDate = moment(lastTrip.arriveDate).add(2, 'days');
+      // Calculate plan's actual end date based on its adjustment duration
+      let durationDays = 2; // Default fallback
+      if (plan.jetLagPlans && plan.jetLagPlans.length > 0) {
+        const lastJetLagPlan = plan.jetLagPlans[plan.jetLagPlans.length - 1];
+        durationDays = lastJetLagPlan.strategy === 'stay_home' ? 0 : (lastJetLagPlan.phases?.adjust?.durationDays || 2);
+      }
+      const planEndDate = moment(lastTrip.arriveDate).add(durationDays, 'days');
       return planEndDate.isSameOrAfter(today, 'day');
     }).sort((a, b) => {
       // Sort active plan to top
@@ -60,8 +65,13 @@ function PlansScreen({ navigation }: any) {
     const past = plans.filter(plan => {
       if (!plan.trips || plan.trips.length === 0) return false;
       const lastTrip = plan.trips[plan.trips.length - 1];
-      // Move to past only after adjustment phase (arrival + 2 days) is complete
-      const planEndDate = moment(lastTrip.arriveDate).add(2, 'days');
+      // Move to past only after adjustment phase (arrival + durationDays) is complete
+      let durationDays = 2; // Default fallback
+      if (plan.jetLagPlans && plan.jetLagPlans.length > 0) {
+        const lastJetLagPlan = plan.jetLagPlans[plan.jetLagPlans.length - 1];
+        durationDays = lastJetLagPlan.strategy === 'stay_home' ? 0 : (lastJetLagPlan.phases?.adjust?.durationDays || 2);
+      }
+      const planEndDate = moment(lastTrip.arriveDate).add(durationDays, 'days');
       return planEndDate.isBefore(today, 'day');
     });
 

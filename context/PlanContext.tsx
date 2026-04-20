@@ -437,7 +437,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        const durationDays = jetLagPlan.phases.adjust.durationDays || 4;
+        const durationDays = jetLagPlan.strategy === 'stay_home' ? 0 : (jetLagPlan.phases.adjust.durationDays || 4);
         // The adjust phase runs for 'durationDays' starting from arrival.
         // So adjustEnd is arrival + durationDays.
         // (Note: adjustEndDateCalculated in algorithm was start + duration. logic matches here).

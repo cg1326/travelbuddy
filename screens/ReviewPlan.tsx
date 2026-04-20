@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Feather';
 import { usePlans } from '../context/PlanContext';
-import { generateJetLagPlan, getDefaultUserSettings, calculateStayDuration, Trip } from '../utils/jetLagAlgorithm';
+import { generateJetLagPlan, getDefaultUserSettings, calculateStayDuration, calculateTimezoneDiff, Trip } from '../utils/jetLagAlgorithm';
 import { checkForConnectionConflicts } from '../utils/conflictDetection';
 import moment from 'moment';
 import ConflictModal from '../components/ConflictModal';
@@ -232,10 +232,9 @@ export default function ReviewPlan({ route, navigation }: any) {
             const stayDuration = calculateStayDuration(trip, nextTrip);
             const isShortTrip = stayDuration < 3;
 
-            // Detect if this is a round trip (A→B→A) vs a layover (A→B→C)
-            // Only show preference for round trips, not layovers
             const isRoundTrip = nextTrip && trip.to === nextTrip.from && trip.from === nextTrip.to;
-            const shouldShowPreference = isShortTrip && isRoundTrip;
+            const tzDiff = Math.abs(calculateTimezoneDiff(trip.from, trip.to, trip.departDate, trip.fromTz, trip.toTz));
+            const shouldShowPreference = isShortTrip && isRoundTrip && tzDiff >= 3;
 
             return (
               <View key={trip.id} style={[styles.tripCard, { backgroundColor: colors.surface }]}>

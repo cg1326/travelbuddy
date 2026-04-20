@@ -127,7 +127,7 @@ export default function TodayView({ navigation }: any) {
 
     activePlan.jetLagPlans.forEach((tripPlan: any) => {
       const includePrepare = tripPlan.strategy !== 'stay_home' && !tripPlan.suppressPreparePhase;
-      const includeAdjust = tripPlan.strategy !== 'stay_home' && !tripPlan.suppressAdjustPhase;
+      const includeAdjust = !tripPlan.suppressAdjustPhase;
 
       let phasesCards = [...tripPlan.phases.travel.cards];
       if (includePrepare && tripPlan.phases.prepare) {

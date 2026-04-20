@@ -79,6 +79,7 @@ export const LEGACY_CITY_TIMEZONES: { [key: string]: string } = {
   'Philadelphia': 'America/New_York',
   'Atlanta': 'America/New_York',
   'Miami': 'America/New_York',
+  'Charlottesville': 'America/New_York',
   'Honolulu': 'Pacific/Honolulu',
   'Toronto': 'America/Toronto',
   'Vancouver': 'America/Vancouver',
@@ -508,6 +509,7 @@ export const airportMappings: { [key: string]: string } = {
   'JFK': 'New York', 'EWR': 'New York', 'LGA': 'New York',
   'BOS': 'Boston',
   'DCA': 'Washington DC', 'IAD': 'Washington DC', 'BWI': 'Washington DC',
+  'CHO': 'Charlottesville',
   'PHL': 'Philadelphia',
   'ATL': 'Atlanta',
   'MIA': 'Miami', 'FLL': 'Miami',
@@ -1470,7 +1472,7 @@ export function generateJetLagPlan(
       },
     },
     strategy: adjustmentStrategy.percentage === 0 ? 'stay_home' : 'adjust',
-    suppressPreparePhase: hasOverlapWithPrevTrip,
+    suppressPreparePhase: hasOverlapWithPrevTrip || prepDays <= 0,
     suppressAdjustPhase: suppressAdjustPhase,
   };
 }
@@ -1589,7 +1591,7 @@ function generatePrepareCards(
       color: '#3b82f6',
       why: 'Travel dehydrates you regardless of timezone change. Start hydrating well now.',
       how: 'Drink extra water today and tomorrow. Aim for 8-10 glasses per day.',
-      dateTime: `${startDate}T09:00:00`,
+      dateTime: moment.tz(`${startDate} 09:00`, 'YYYY-MM-DD HH:mm', trip.fromTz || getCityTimezone(trip.from)).toISOString(),
     });
 
     cards.push({
