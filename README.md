@@ -1,43 +1,40 @@
 # TravelBuddy
 
-A jet lag recovery app that adapts to the chaos of real travel — delayed flights, exhaustion, missed actions and all.
+Jet lag apps work great in theory. The schedule is scientifically sound, you follow it, and you recover in two days.
 
-## What it is
+That doesn't happen. Flights get delayed. You arrive exhausted. You skip the afternoon nap because you're actually on vacation. Existing apps treat any deviation as a silent failure, and most people abandon the plan after the first missed action.
 
-TravelBuddy is a React Native app (iOS + Android) that generates personalized jet lag recovery plans based on your flights, sleep schedule, and timezone. Unlike rigid schedule-based tools, TravelBuddy is built around one core idea: **travel is unpredictable, and your recovery plan should flex with it**.
+TravelBuddy is a React Native app (iOS + Android) for jet lag recovery built on the assumption that real travel is unpredictable. When something goes wrong, the plan adapts instead of falling apart.
 
-Tell the app your flights. It builds a plan covering caffeine timing, sleep windows, light exposure, and more. When things go sideways — your flight is delayed, you land exhausted, or you miss a few recommendations — TravelBuddy adapts the plan rather than leaving you stranded with a schedule that no longer makes sense.
+## What it does
 
-## Why it exists
+**Flight delay replanning.** Tell the app your flight is delayed and by how much. All remaining actions shift automatically.
 
-Most jet lag apps give you a scientifically optimal schedule, then silently fail the moment reality intervenes. Flights get delayed. You arrive more wrecked than expected. You miss an afternoon nap because you were actually enjoying your vacation. Existing tools treat any deviation as a failure — and users just give up.
+**Exhaustion-aware scheduling.** On arrival, the app asks how you're feeling. If you're wrecked, it rebuilds Day 1 around a recovery nap rather than pushing the original timeline.
 
-TravelBuddy is built for the other 99% of trips: the ones where something goes differently than planned. The app assumes chaos and adapts accordingly, so you stay on track even when your itinerary doesn't.
+**Non-punitive UX.** Missing an action doesn't break the plan or show red indicators. The app shows what's next, not what you failed at.
 
-**Core insight:** Travelers don't need another rigid system to feel guilty about. They need adaptive guidance that meets them where they are.
+**Multi-scenario logic.** Short trips, multi-leg routes, 3-hour vs. 12-hour timezone differences, east vs. west crossings. Each gets a different strategy.
 
-## Key features
+**Conflict detection.** Flying again before you've finished recovering from the last trip? The app catches the overlap and resolves it.
 
-- **Adaptive replanning** — Tap "my flight is delayed" and the entire plan shifts automatically
-- **Exhaustion-aware adjustments** — Arrive wrecked? The app modifies your Day 1 schedule around a recovery nap instead of pushing you to power through
-- **Non-punitive UX** — Missing actions doesn't break your plan or show angry red indicators. The app shows you what's next, not what you failed at
-- **Multi-scenario support** — Short trips, multi-leg flights, eastward vs. westward crossings, small vs. large timezone differences all get tailored strategies
-- **Conflict detection** — Flying again before you've recovered from the last trip? The app detects overlapping plans and resolves them
-- **Science-backed recommendations** — Caffeine timing, sleep windows, light exposure, and optional melatonin/magnesium guidance based on established jet lag research
-- **Real sunrise/sunset data** — Light exposure recommendations use your actual location, with indoor light fallbacks for cloudy days
+**Location-aware light guidance.** Sunrise and sunset times are calculated for your exact location using SunCalc. Overcast day or stuck indoors, it falls back to indoor light alternatives.
 
-## Tech stack
+## How it compares to Timeshifter
 
-- React Native (iOS + Android)
-- TypeScript
-- Firebase (backend + analytics)
-- SunCalc (sunrise/sunset calculations)
+Timeshifter gives you a scientifically validated schedule. It's a good product. It works if you follow it. Most leisure travelers can't follow it perfectly, and the app doesn't account for that.
+
+TravelBuddy is built for trips where something goes differently than planned. Beta users following 65-70% of recommendations are still recovering in under 3 days. Full adherence isn't the goal. Recovery that holds up when the trip doesn't go to plan is.
+
+## Tech
+
+React Native (iOS + Android), TypeScript, Firebase, SunCalc.
 
 ## Status
 
-MVP built, pre-launch. Currently preparing for App Store and Google Play submission.
+MVP built, pre-launch. App Store and Google Play submission in progress.
 
-## Getting started
+## Run it
 
 ```bash
 npm install
