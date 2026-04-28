@@ -4,7 +4,7 @@ Jet lag apps work great in theory. The schedule is scientifically sound, you fol
 
 That doesn't happen. Flights get delayed. You arrive exhausted. You skip the afternoon nap because you're actually on vacation. Existing apps treat any deviation as a silent failure, and most people abandon the plan after the first missed action.
 
-TravelBuddy is a React Native app (iOS + Android) for jet lag recovery built on the assumption that real travel is unpredictable. When something goes wrong, the plan adapts instead of falling apart.
+travel buddy is a React Native app (iOS + Android) for jet lag recovery built on the assumption that real travel is unpredictable. When something goes wrong, the plan adapts instead of falling apart.
 
 ## What it does
 
