@@ -43,7 +43,3 @@ npm install
 bundle install
 bundle exec pod install
 npm run ios
-
-# Android
-npm run android
-```
