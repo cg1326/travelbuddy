@@ -32,7 +32,7 @@ React Native (iOS + Android), TypeScript, Firebase, SunCalc.
 
 ## Status
 
-MVP built, pre-launch. App Store and Google Play submission in progress.
+MVP built, published on App Store as 'travel buddy' https://apps.apple.com/us/app/travel-buddy-jet-lag-plans/id6757408473.
 
 ## Run it
 
