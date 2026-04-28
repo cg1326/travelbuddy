@@ -1,97 +1,52 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# TravelBuddy
 
-# Getting Started
+A jet lag recovery app that adapts to the chaos of real travel — delayed flights, exhaustion, missed actions and all.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## What it is
 
-## Step 1: Start Metro
+TravelBuddy is a React Native app (iOS + Android) that generates personalized jet lag recovery plans based on your flights, sleep schedule, and timezone. Unlike rigid schedule-based tools, TravelBuddy is built around one core idea: **travel is unpredictable, and your recovery plan should flex with it**.
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+Tell the app your flights. It builds a plan covering caffeine timing, sleep windows, light exposure, and more. When things go sideways — your flight is delayed, you land exhausted, or you miss a few recommendations — TravelBuddy adapts the plan rather than leaving you stranded with a schedule that no longer makes sense.
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+## Why it exists
 
-```sh
-# Using npm
-npm start
+Most jet lag apps give you a scientifically optimal schedule, then silently fail the moment reality intervenes. Flights get delayed. You arrive more wrecked than expected. You miss an afternoon nap because you were actually enjoying your vacation. Existing tools treat any deviation as a failure — and users just give up.
 
-# OR using Yarn
-yarn start
-```
+TravelBuddy is built for the other 99% of trips: the ones where something goes differently than planned. The app assumes chaos and adapts accordingly, so you stay on track even when your itinerary doesn't.
 
-## Step 2: Build and run your app
+**Core insight:** Travelers don't need another rigid system to feel guilty about. They need adaptive guidance that meets them where they are.
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+## Key features
 
-### Android
+- **Adaptive replanning** — Tap "my flight is delayed" and the entire plan shifts automatically
+- **Exhaustion-aware adjustments** — Arrive wrecked? The app modifies your Day 1 schedule around a recovery nap instead of pushing you to power through
+- **Non-punitive UX** — Missing actions doesn't break your plan or show angry red indicators. The app shows you what's next, not what you failed at
+- **Multi-scenario support** — Short trips, multi-leg flights, eastward vs. westward crossings, small vs. large timezone differences all get tailored strategies
+- **Conflict detection** — Flying again before you've recovered from the last trip? The app detects overlapping plans and resolves them
+- **Science-backed recommendations** — Caffeine timing, sleep windows, light exposure, and optional melatonin/magnesium guidance based on established jet lag research
+- **Real sunrise/sunset data** — Light exposure recommendations use your actual location, with indoor light fallbacks for cloudy days
 
-```sh
-# Using npm
-npm run android
+## Tech stack
 
-# OR using Yarn
-yarn android
-```
+- React Native (iOS + Android)
+- TypeScript
+- Firebase (backend + analytics)
+- SunCalc (sunrise/sunset calculations)
 
-### iOS
+## Status
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+MVP built, pre-launch. Currently preparing for App Store and Google Play submission.
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+## Getting started
 
-```sh
+```bash
+npm install
+
+# iOS
 bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
 bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
 npm run ios
 
-# OR using Yarn
-yarn ios
+# Android
+npm run android
 ```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
