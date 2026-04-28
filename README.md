@@ -1,4 +1,4 @@
-# TravelBuddy
+# travel buddy
 
 Jet lag apps work great in theory. The schedule is scientifically sound, you follow it, and you recover in two days.
 
