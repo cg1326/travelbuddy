@@ -9,11 +9,11 @@ travel buddy is a React Native app (iOS) for jet lag recovery built on the assum
 [![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/us/app/travel-buddy-adjust-timezones/id6757408473)
 
 <p align="center">
-  <img width="800" alt="Frame 1" src="https://github.com/user-attachments/assets/b4c39fa9-34b0-4762-b736-8ae52ad308ce" />
-  <img width="800" alt="Frame 4" src="https://github.com/user-attachments/assets/80153729-0624-4e3a-9262-e80c52fb1b48" />
-  <img width="800" alt="Frame 3" src="https://github.com/user-attachments/assets/ac6f7558-0b28-4329-bf61-ab586950dc7c" />
-  <img width="800" alt="Frame 2" src="https://github.com/user-attachments/assets/71635a31-d5fe-4bde-8551-1431d2458032" />
-  <img width="800" alt="Frame 5" src="https://github.com/user-attachments/assets/f5553b20-572a-4ac1-a79a-a04df65d90c5" />
+  <img width="800" alt="Frame 1" src="https://github.com/user-attachments/assets/f6bd4df3-c410-43bf-af9b-6fbb3a151aa8" />
+  <img width="800" alt="Frame 4" src="https://github.com/user-attachments/assets/3d111b6a-3705-4df1-98cf-8a3222d56c8c" />
+  <img width="800" alt="Frame 3" src="https://github.com/user-attachments/assets/157a4fe3-61f7-4f7b-94ab-14d4321ac308" />
+  <img width="800" alt="Frame 2" src="https://github.com/user-attachments/assets/98fc6710-3729-4d12-bb59-0deece9476f2" />
+  <img width="800" alt="Frame 5" src="https://github.com/user-attachments/assets/6ff2bb46-d9b8-453b-806b-f5c4041c2540" />
 </p>
 
 ## What it does
