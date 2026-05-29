@@ -4,7 +4,16 @@ Jet lag apps work great in theory. The schedule is scientifically sound, you fol
 
 That doesn't happen. Flights get delayed, you arrive exhausted, and you skip the afternoon nap because you're actually on vacation. Existing apps treat any deviation as a silent failure, and most people abandon the plan after the first or first few missed actions.
 
-travel buddy is a iOS app for jet lag recovery built on the assumption that real travel is unpredictable. When something goes wrong, the plan adapts instead of falling apart.
+travel buddy is an iOS mobile app that generates personalized jet lag recovery plans for leisure or casual travelers crossing time zones. The idea came from a simple pain point I’d dealt with when traveling: every time I flew internationally, I would try to do mental math on when to sleep to get X number of hours and when to not have caffeine, and inevitably still feel destroyed for the first three days of a trip. 
+
+The app shows a streamlined onboarding flow where the user inputs their flight details, then automatically detects timezones, and generates a recovery plan broken into daily "action cards." Each card covers a specific recommendation, like when to seek or avoid bright light, when to cut off caffeine, and when to shift sleep timing, which are all grounded in basic circadian science principles. The app also includes a quick-delay feature that reschedules the entire plan if a flight changes, updated adjustment length for eastward vs. westward flights based on user feedback from past trips, and push notifications that keep users on track throughout the day. The main design principle is low friction, as the UX aims to feel a series of nudges that adapts to feedback and prevents users from feeling overwhelmed if they lose track of the next step (actions can be skipped or completed).
+
+## Value proposition
+
+For me personally, travel buddy started as a way to make trips feel less tiring without too much effort. I travel internationally a few times a year, including a recent trip to India for a friend's wedding, and I genuinely wanted a tool that would help me recover faster and adapt to my personal preferences.
+
+For users, the immediate benefit is a recovery plan tailored to their specific route and schedule. Instead of Googling "how to beat jet lag when flying to Italy" or asking ChatGPT and getting imprecise or conflicting answers sourced from Reddit advice, they get a single adaptive plan with timed recommendations. For users going to weddings or vacations where they want to be present from the get go, even reducing one day from the total recovery time has meaningful value.
+
 
 [![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/us/app/travel-buddy-adjust-timezones/id6757408473)
 
