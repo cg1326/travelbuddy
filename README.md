@@ -2,9 +2,9 @@
 
 Jet lag apps work great in theory. The schedule is scientifically sound, you follow it, and you recover in two days.
 
-That doesn't happen. Flights get delayed. You arrive exhausted. You skip the afternoon nap because you're actually on vacation. Existing apps treat any deviation as a silent failure, and most people abandon the plan after the first missed action.
+That doesn't happen. Flights get delayed, youu arrive exhausted, and uou skip the afternoon nap because you're actually on vacation. Existing apps treat any deviation as a silent failure, and most people abandon the plan after the first or first few missed actions.
 
-travel buddy is a React Native app (iOS) for jet lag recovery built on the assumption that real travel is unpredictable. When something goes wrong, the plan adapts instead of falling apart.
+travel buddy is a iOS app for jet lag recovery built on the assumption that real travel is unpredictable. When something goes wrong, the plan adapts instead of falling apart.
 
 [![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/us/app/travel-buddy-adjust-timezones/id6757408473)
 
