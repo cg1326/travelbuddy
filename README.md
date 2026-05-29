@@ -43,9 +43,12 @@ Timeshifter gives you a scientifically validated schedule. It's a good product a
 
 travel buddy is built for trips where something goes differently than planned, as users following 65-70% of recommendations are still recovering in under 3 days. Full adherence isn't the goal; rather, it's recovery that holds up when the trip doesn't go to plan.
 
-## Tech
+## Tech stack
 
-React Native (iOS + Android), TypeScript, Firebase, SunCalc.
+- React Native (iOS)
+- TypeScript
+- Firebase
+- SunCalc
 
 ## Run it
 
