@@ -6,6 +6,14 @@ That doesn't happen. Flights get delayed. You arrive exhausted. You skip the aft
 
 travel buddy is a React Native app (iOS) for jet lag recovery built on the assumption that real travel is unpredictable. When something goes wrong, the plan adapts instead of falling apart.
 
+[![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/us/app/travel-buddy-adjust-timezones/id6757408473)
+
+<img width="800" alt="Frame 1" src="https://github.com/user-attachments/assets/b4c39fa9-34b0-4762-b736-8ae52ad308ce" />
+<img width="800" alt="Frame 4" src="https://github.com/user-attachments/assets/80153729-0624-4e3a-9262-e80c52fb1b48" />
+<img width="800" alt="Frame 3" src="https://github.com/user-attachments/assets/ac6f7558-0b28-4329-bf61-ab586950dc7c" />
+<img width="800" alt="Frame 2" src="https://github.com/user-attachments/assets/71635a31-d5fe-4bde-8551-1431d2458032" />
+<img width="800" alt="Frame 5" src="https://github.com/user-attachments/assets/f5553b20-572a-4ac1-a79a-a04df65d90c5" />
+
 ## What it does
 
 **Flight delay replanning.** Tell the app your flight is delayed and by how much. All remaining actions shift automatically.
