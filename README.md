@@ -41,9 +41,10 @@ Timeshifter gives you a scientifically validated schedule. It's a good product a
 
 travel buddy is built for trips where something goes differently than planned, as users following 65-70% of recommendations are still recovering in under 3 days. Full adherence isn't the goal; rather, it's recovery that holds up when the trip doesn't go to plan.
 
-## Product strategy (brainstorming)
+## Product strategy notes
 
-### Positioning
+<details>
+<summary>Click to expand</summary>
 **The flexible jet lag planner that adapts to real life**
 
 Most jet lag apps assume everything goes to plan. Travel Buddy is built for when it doesn't: flight delays, missed recommendations, schedule conflicts, and trips where you're traveling with kids or running on three hours of sleep.
@@ -94,6 +95,7 @@ Captures both moderate travelers (summer + winter trip) and frequent travelers. 
 - First plan free, then $2.99/plan, or $7.99/year for unlimited use
 - First plan free, then $7.99/year for unlimited use
 - Need to gatekeep users trying to edit their first plan or Xth plan without paying for an additional plan or annual fee
+</details>
 
 ## Tech stack
 
