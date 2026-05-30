@@ -6,7 +6,7 @@ That doesn't happen. Flights get delayed, you arrive exhausted, and you skip the
 
 travel buddy is an iOS mobile app that generates personalized jet lag recovery plans for leisure or casual travelers crossing time zones. The idea came from a simple pain point I’d dealt with when traveling: every time I flew internationally, I would try to do mental math on when to sleep to get X number of hours and when to not have caffeine, and inevitably still feel destroyed for the first three days of a trip. 
 
-## Value proposition
+## Who does this benefit?
 
 For me personally, travel buddy started as a way to make trips feel less tiring without too much effort. I travel internationally a few times a year, including a recent trip to India for a friend's wedding, and I genuinely wanted a tool that would help me recover faster and adapt to my personal preferences.
 
@@ -42,6 +42,52 @@ For users, the immediate benefit is a recovery plan tailored to their specific r
 Timeshifter gives you a scientifically validated schedule. It's a good product and works if you follow it. Most leisure travelers can't follow it perfectly, and the app doesn't account for that.
 
 travel buddy is built for trips where something goes differently than planned, as users following 65-70% of recommendations are still recovering in under 3 days. Full adherence isn't the goal; rather, it's recovery that holds up when the trip doesn't go to plan.
+
+## Product strategy (brainstorming)
+
+### Positioning
+**The flexible jet lag planner that adapts to real life**
+
+Most jet lag apps assume everything goes to plan. Travel Buddy is built for when it doesn't: flight delays, missed recommendations, schedule conflicts, and trips where you're traveling with kids or running on three hours of sleep.
+
+### Differentiation
+Flexibility across three dimensions:
+- **Adaptive**: adjusts when plans change (delays, missed steps, schedule conflicts)
+- **Realistic**: accounts for real constraints like work commitments and sleep deprivation
+- **Proportional**: matches guidance to the problem (a 2-hour timezone shift ≠ an 8-hour one)
+
+### Target User
+Moderate to frequent travelers who cross timezones 3–4x per year. Not the biohacker optimizing every circadian variable, but the person who wants to feel human on day one of their trip without a complicated plan.
+
+- **Income:** $150K+ (international travel skews higher income)
+- **Trip type:** Both domestic and international, ideally crossing 2+ timezones
+- **Attitude:** Finds the science interesting when it's easy to follow. Won't go out of their way to over-optimize.
+
+**Why this segment?** Timeshifter reviews consistently surface the same frustrations: recommendations that feel overwhelming, a "science-backed" angle that not everyone connects with, and zero flexibility when things change. Travel Buddy is the antidote: friendly, non-intimidating, and built for the casual-but-serious traveler.
+
+### North Star Metric
+**% of users who create a second plan within 9 months of their first**
+
+Captures both moderate travelers (summer + winter trip) and frequent travelers. Target: 40–45% repeat usage within 9 months.
+
+### Supporting Metrics
+
+| Metric | Why it matters | Target |
+|---|---|---|
+| Per-trip conversion rate | Do people value it enough to pay? | 15–20% |
+| Annual conversion rate | Overall monetization health | 5–8% |
+| Plan completion rate | Low completion = friction or unrealistic recs | 70%+ |
+| Notification response rate | Are notifications helpful or annoying? | 30–40% |
+| Time to first plan | Onboarding friction | <5 min |
+
+**Action completion by type** (tracks what's realistic vs. too hard):
+- Morning light exposure
+- Caffeine cutoff
+- Sleep on flight
+- Hydration
+- Avoiding naps
+- Local meal timing
+- Supplements
 
 ## Tech stack
 
