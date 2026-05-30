@@ -8,8 +8,6 @@ travel buddy is an iOS mobile app that generates personalized jet lag recovery p
 
 ## Who does this benefit?
 
-For me personally, travel buddy started as a way to make trips feel less tiring without too much effort. I travel internationally a few times a year, including a recent trip to India for a friend's wedding, and I genuinely wanted a tool that would help me recover faster and adapt to my personal preferences.
-
 For users, the immediate benefit is a recovery plan tailored to their specific route and schedule. Instead of Googling "how to beat jet lag when flying to Italy" or asking ChatGPT and getting imprecise or conflicting answers sourced from Reddit advice, they get a single adaptive plan with timed recommendations. For users going to weddings or vacations where they want to be present from the get go, even reducing one day from the total recovery time has meaningful value.
 
 
