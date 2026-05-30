@@ -6,7 +6,7 @@ That doesn't happen. Flights get delayed, you arrive exhausted, and you skip the
 
 travel buddy is an iOS mobile app that generates personalized jet lag recovery plans for leisure or casual travelers crossing time zones. The idea came from a simple pain point I’d dealt with when traveling: every time I flew internationally, I would try to do mental math on when to sleep to get X number of hours and when to not have caffeine, and inevitably still feel destroyed for the first three days of a trip. 
 
-## Who does this benefit?
+## How does this benefit users?
 
 The immediate benefit is a recovery plan tailored to their specific route and schedule. Instead of Googling "how to beat jet lag when flying to Italy" or asking ChatGPT and getting imprecise or conflicting answers sourced from Reddit advice, they get a single adaptive plan with timed recommendations. For users going to weddings or vacations where they want to be present from the get go, even reducing one day from the total recovery time has meaningful value.
 
