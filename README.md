@@ -45,6 +45,8 @@ travel buddy is built for trips where something goes differently than planned, a
 
 <details>
 <summary>Click to expand</summary>
+<br>
+
 **The flexible jet lag planner that adapts to real life**
 
 Most jet lag apps assume everything goes to plan. Travel Buddy is built for when it doesn't: flight delays, missed recommendations, schedule conflicts, and trips where you're traveling with kids or running on three hours of sleep.
