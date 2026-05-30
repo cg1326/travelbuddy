@@ -37,7 +37,7 @@ The immediate benefit is a recovery plan tailored to their specific route and sc
 
 ## How it compares to Timeshifter
 
-Timeshifter gives you a scientifically validated schedule. It's a good product and works if you follow it. Most leisure travelers can't follow it perfectly, and the app doesn't account for that. This NY Times review (and many others on user-driven platforms like Reddit) have substantiated this pain point: https://www.nytimes.com/wirecutter/reviews/timeshifter-app-review/ ("This App Can Help You Beat Jet Lag— **If You Don’t Have Much Else to Do**")
+Timeshifter gives you a scientifically validated schedule. It's a good product and works if you follow it. Most leisure travelers can't follow it perfectly, and the app doesn't account for that. [This NY Times review](https://www.nytimes.com/wirecutter/reviews/timeshifter-app-review/) (and many others on user-driven platforms like Reddit) have substantiated this pain point. ("This App Can Help You Beat Jet Lag— **If You Don’t Have Much Else to Do**")
 
 travel buddy is built for trips where something goes differently than planned, as users following 65-70% of recommendations are still recovering in under 3 days. Full adherence isn't the goal; rather, it's recovery that holds up when the trip doesn't go to plan.
 
