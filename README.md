@@ -8,7 +8,7 @@ travel buddy is an iOS mobile app that generates personalized jet lag recovery p
 
 ## Who does this benefit?
 
-For users, the immediate benefit is a recovery plan tailored to their specific route and schedule. Instead of Googling "how to beat jet lag when flying to Italy" or asking ChatGPT and getting imprecise or conflicting answers sourced from Reddit advice, they get a single adaptive plan with timed recommendations. For users going to weddings or vacations where they want to be present from the get go, even reducing one day from the total recovery time has meaningful value.
+The immediate benefit is a recovery plan tailored to their specific route and schedule. Instead of Googling "how to beat jet lag when flying to Italy" or asking ChatGPT and getting imprecise or conflicting answers sourced from Reddit advice, they get a single adaptive plan with timed recommendations. For users going to weddings or vacations where they want to be present from the get go, even reducing one day from the total recovery time has meaningful value.
 
 
 [![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/us/app/travel-buddy-adjust-timezones/id6757408473)
@@ -86,6 +86,14 @@ Captures both moderate travelers (summer + winter trip) and frequent travelers. 
 - Avoiding naps
 - Local meal timing
 - Supplements
+
+### Some pricing ideas for future
+
+- MVP all free initially
+- First plan free, then $2.99/plan (MVP)
+- First plan free, then $2.99/plan, or $7.99/year for unlimited use
+- First plan free, then $7.99/year for unlimited use
+- Need to gatekeep users trying to edit their first plan or Xth plan without paying for an additional plan or annual fee
 
 ## Tech stack
 
